@@ -1,0 +1,2 @@
+# Secrets live only on the VPS.
+.env
