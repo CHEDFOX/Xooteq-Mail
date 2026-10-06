@@ -86,8 +86,8 @@ docker compose exec -T mariadb mariadb -uroot -p"$DB_ROOT_PASSWORD" -e \
 # Postal's schema. "initialize" is idempotent: a second run migrates, not wipes.
 docker compose --profile tools run --rm runner postal initialize
 
-docker compose up -d
-echo "started: web, smtp, worker, cron, forms"
+docker compose up -d --remove-orphans
+echo "started: web, smtp, worker, forms"
 
 # The first login. Postal asks for the details itself.
 echo

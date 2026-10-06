@@ -1,6 +1,6 @@
 # Postal, the mail platform. Lives at /opt/postal on the VPS (setup.sh copies it
-# there with the config it fills in). Four Postal processes share one image and
-# one config; MariaDB holds the main database and one database per mail server.
+# there with the config it fills in). Three Postal processes share one image and
+# one config (the worker also runs the scheduled jobs); MariaDB holds the main database and one database per mail server.
 #
 #   docker compose up -d                  start / apply changes
 #   docker compose logs -f smtp worker    watch deliveries
@@ -60,10 +60,6 @@ services:
   worker:
     <<: *postal
     command: postal worker
-
-  cron:
-    <<: *postal
-    command: postal cron
 
   # One-off commands only: `docker compose run --rm runner postal <command>`.
   runner:

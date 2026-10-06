@@ -20,7 +20,7 @@ the scripts that put it there. Its checkout on the VPS is `~/xooteq-mail`.
 ```
 xooteq-mail/
   forms/                 the contact-form service (see Forms, below)
-  docker-compose.yml     Postal (web, smtp, worker, cron) + MariaDB + forms
+  docker-compose.yml     Postal (web, smtp, worker) + MariaDB + forms
   postal.yml.template    Postal's config; setup.sh fills it from .env
   mariadb-init.sql       the grant Postal needs for its per-server databases
   setup.sh               first run: keys, config, database, admin user, DKIM record
