@@ -66,7 +66,7 @@ chmod +x "$P/certbot-hook.sh"
 mkdir -p "$P/forms"
 cp forms/server.mjs forms/lib.mjs forms/Dockerfile "$P/forms/"
 if [ ! -f "$P/forms/sites.json" ]; then
-  cp forms/sites.example.json "$P/forms/sites.json"; chmod 600 "$P/forms/sites.json"
+  cp forms/sites.example.json "$P/forms/sites.json"; chmod 644 "$P/forms/sites.json"   # read by the container's own user
   echo "made $P/forms/sites.json from the example: put real keys in it (README, Forms)"
 fi
 cd "$P"
