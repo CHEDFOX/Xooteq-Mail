@@ -37,6 +37,8 @@ case "$ptr" in *".$D") pass "PTR $IP → $ptr";; *) fail "PTR $IP → '${ptr:-no
 echo "Ports"
 for p in 25 587; do nc -z -w 3 127.0.0.1 $p 2>/dev/null && pass "smtp listening on $p" || fail "nothing on port $p (docker compose ps in /opt/postal)"; done
 nc -z -w 3 127.0.0.1 5000 2>/dev/null && pass "dashboard on 127.0.0.1:5000" || fail "dashboard not on 5000"
+fh=$(curl -s -m 5 http://127.0.0.1:5100/healthz || true)
+case "$fh" in *'"ok":true'*) pass "forms on 127.0.0.1:5100 ($fh)";; *) fail "forms not answering on 5100 (docker compose logs forms)";; esac
 if nc -z -w 5 gmail-smtp-in.l.google.com 25 2>/dev/null; then pass "outbound port 25 is open (can deliver to Gmail)"; else fail "outbound port 25 is BLOCKED: ask Hostinger support to open it"; fi
 
 echo "TLS"

@@ -19,7 +19,8 @@ the scripts that put it there. Its checkout on the VPS is `~/xooteq-mail`.
 
 ```
 xooteq-mail/
-  docker-compose.yml     Postal (web, smtp, worker, cron) + MariaDB
+  forms/                 the contact-form service (see Forms, below)
+  docker-compose.yml     Postal (web, smtp, worker, cron) + MariaDB + forms
   postal.yml.template    Postal's config; setup.sh fills it from .env
   mariadb-init.sql       the grant Postal needs for its per-server databases
   setup.sh               first run: keys, config, database, admin user, DKIM record
@@ -141,6 +142,87 @@ and a few test mails a day; do not send a campaign. Watch
 rates the domain and IP). Spam complaints above 0.3% or bounces above 5% get an
 IP throttled, and the suppression list in Postal stops repeat sends to dead
 addresses automatically.
+
+## Forms: contact forms without Web3Forms
+
+A site's contact form posts to this platform, and the message lands in an inbox,
+sent through Postal from the site's own domain, with Reply-To set to the visitor
+so answering is one click. Every submission is also kept on the server.
+
+**Once:** an `A` record `forms` → `91.108.104.168` at xooteq.online, then nginx
+and certbot for it:
+
+```bash
+sudo cp ~/xooteq-mail/nginx-forms.conf /etc/nginx/sites-available/forms.conf
+sudo sed -i "s/FORMS_DOMAIN/xooteq.online/g" /etc/nginx/sites-available/forms.conf
+sudo ln -sf /etc/nginx/sites-available/forms.conf /etc/nginx/sites-enabled/forms.conf
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d forms.xooteq.online
+```
+
+**Per site:** an entry in `/opt/postal/forms/sites.json` (the example is in
+`forms/sites.example.json`):
+
+| Field | Meaning |
+|---|---|
+| `key` | The public id in the form's URL. Any 8–64 letters, digits, `_`, `-`. |
+| `to` | Where submissions go. Any inbox, Gmail included. |
+| `from` | The sender, on a domain verified in that app's Postal mail server. |
+| `postal_key` | An **API** credential of that mail server (dashboard → Credentials). |
+| `origins` | Sites allowed to post. `*.example.com` matches every subdomain. Empty allows all. |
+| `redirect` | Where a plain form post lands afterwards. Without it, a small "sent" page. |
+| `subject` | May use `{field}`: `Message from {name}`. |
+| `autoreply` | Optional `subject` and `text` sent to the visitor's `email`. |
+| `admin_token` | For `/s/<key>/recent?token=…`, the last submissions as JSON. |
+| `limits` | `perMinute` per visitor and `perDay` per site; above them the service answers 429. |
+
+The service re-reads the file when it changes; no restart.
+
+**In the site**, a plain form:
+
+```html
+<form action="https://forms.xooteq.online/s/tz_8f3a1c2e9b7d4a6f" method="post">
+  <input name="name" placeholder="Your name" required>
+  <input name="email" type="email" placeholder="Your email" required>
+  <textarea name="message" required></textarea>
+  <input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off">
+  <input type="hidden" name="_redirect" value="https://tailzu.space/thanks">
+  <button>Send</button>
+</form>
+```
+
+or from a script, which gets JSON back and can stay on the page:
+
+```js
+const r = await fetch("https://forms.xooteq.online/s/tz_8f3a1c2e9b7d4a6f", {
+  method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ name, email, message }),
+});
+const { ok, error } = await r.json();
+```
+
+Any field is sent along, with its name as the label. Special names: `email`
+(becomes Reply-To and gets the auto-reply), `_subject`, `_redirect`, `_cc`;
+`botcheck`, `_honey` or `_gotcha` is the honeypot (a bot that fills it is
+thanked and ignored). Files are not accepted. A form moved over from Web3Forms
+keeps working: only the `action` URL changes and the `access_key` field is
+ignored.
+
+## Receiving: mail sent *to* your domains
+
+Postal also receives. To get replies and anything sent to `hello@tailzu.space`:
+
+1. At tailzu.space's DNS: `MX` `@` → `10 mx.mail.xooteq.online`. (Only if the
+   domain has no other mail; an MX moves *all* its incoming mail here.)
+2. Dashboard → the Tailzu mail server → **Routes** → *Add*: address `hello`
+   at `tailzu.space`, then what to do with it: **Forward to an address**
+   (`madefox6666@gmail.com`) is the usual one; a **webhook** (an HTTP endpoint
+   that gets the parsed message as JSON) is for an app that wants to react.
+   `*` as the address catches everything on the domain.
+
+There is no mailbox to log into: mail that arrives is forwarded or handed to a
+webhook, and kept in Postal's log for a while. For a real inbox under a domain,
+use a mailbox provider for that domain and keep Postal for sending.
 
 ## When a code does not arrive
 

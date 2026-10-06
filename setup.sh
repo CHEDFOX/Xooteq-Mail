@@ -61,9 +61,17 @@ fi
 cp docker-compose.yml mariadb-init.sql certbot-hook.sh "$P/"
 cp .env "$P/.env"; chmod 600 "$P/.env"
 chmod +x "$P/certbot-hook.sh"
+# The forms service: its code, and a sites.json to fill in (kept if there).
+mkdir -p "$P/forms"
+cp forms/server.mjs forms/lib.mjs forms/Dockerfile "$P/forms/"
+if [ ! -f "$P/forms/sites.json" ]; then
+  cp forms/sites.example.json "$P/forms/sites.json"; chmod 600 "$P/forms/sites.json"
+  echo "made $P/forms/sites.json from the example: put real keys in it (README, Forms)"
+fi
 cd "$P"
 
 docker compose pull -q
+docker compose build -q forms
 docker compose up -d mariadb
 echo "waiting for MariaDB"
 for i in $(seq 1 30); do
@@ -78,7 +86,7 @@ docker compose exec -T mariadb mariadb -uroot -p"$DB_ROOT_PASSWORD" -e \
 docker compose --profile tools run --rm runner postal initialize
 
 docker compose up -d
-echo "started: web, smtp, worker, cron"
+echo "started: web, smtp, worker, cron, forms"
 
 # The first login. Postal asks for the details itself.
 echo

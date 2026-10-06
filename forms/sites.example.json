@@ -1,0 +1,19 @@
+{
+  "sites": {
+    "tailzu": {
+      "key": "tz_8f3a1c2e9b7d4a6f",
+      "to": ["madefox6666@gmail.com"],
+      "from": "Tailzu Forms <forms@tailzu.space>",
+      "postal_key": "the API credential of the Tailzu mail server in Postal",
+      "origins": ["https://tailzu.space", "https://www.tailzu.space"],
+      "redirect": "https://tailzu.space/thanks",
+      "subject": "Message from {name}",
+      "autoreply": {
+        "subject": "We got your message, {name}",
+        "text": "Thanks for writing to Tailzu. We read every message and reply within a day.\n\n— Tailzu"
+      },
+      "admin_token": "a long random string, for /s/<key>/recent?token=",
+      "limits": { "perMinute": 5, "perDay": 200 }
+    }
+  }
+}

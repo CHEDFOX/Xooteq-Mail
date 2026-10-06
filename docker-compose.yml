@@ -71,5 +71,24 @@ services:
     profiles: ["tools"]
     command: postal
 
+  # Contact forms: a site posts to https://forms.<domain>/s/<key>, the message
+  # goes out through Postal to the inbox named in sites.json (README, Forms).
+  forms:
+    build: ./forms
+    environment:
+      POSTAL_API: http://web:5000
+    volumes:
+      - /opt/postal/forms/sites.json:/config/sites.json:ro
+      - forms_data:/data
+    ports:
+      - "127.0.0.1:5100:5100"
+    depends_on:
+      - web
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
 volumes:
   postal_db:
+  forms_data:
