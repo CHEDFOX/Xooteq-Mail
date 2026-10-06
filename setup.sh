@@ -47,7 +47,8 @@ t=${t//\$\{DB_PASSWORD\}/$DB_PASSWORD}
 t=${t//\$\{SYSTEM_FROM\}/$SYSTEM_FROM}
 t=${t//\$\{RAILS_SECRET\}/$RAILS_SECRET}
 printf '%s\n' "$t" > "$P/config/postal.yml"
-chmod 640 "$P/config/postal.yml"
+# Postal runs as its own user inside the container: the config must be readable.
+chmod 644 "$P/config/postal.yml"
 
 # A placeholder certificate until certbot's arrives (certbot-hook.sh replaces
 # it), so the SMTP server starts with STARTTLS from the first minute.
