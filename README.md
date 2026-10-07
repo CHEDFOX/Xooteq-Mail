@@ -157,8 +157,8 @@ or give them as flags, for a script:
 The API key is the only required one (the script reads statuses back with it).
 Each further value adds a path: `--smtp` connects exactly as Supabase does (STARTTLS
 on 587, AUTH PLAIN, the key as the password), `--forms` posts a contact-form
-submission, `--supabase` asks Supabase for a sign-in code for `--to` (an address
-that has an account) and watches it come through. Every line says *ok* with
+submission, `--supabase` asks Supabase for a sign-in code for `--to`, as a first
+sign-in from the app does, and watches it come through. Every line says *ok* with
 the receiver's acceptance (`250 2.0.0 OK ... gsmtp`) or *FAIL* with what went
 wrong and where to look. Then open one of the mails in the inbox → *Show
 original*: SPF, DKIM and DMARC should all say PASS.

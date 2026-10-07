@@ -12,8 +12,8 @@ Every step sends one real mail to --to, then watches Postal until the receiver
   smtp      exactly what Supabase does: STARTTLS on 587, AUTH PLAIN, the
             credential's key as the password, the username ignored
   forms     a contact-form submission posted to the forms service
-  supabase  asks Supabase for a sign-in code for --to; it must arrive through
-            here (the address must already have an account; nothing is created)
+  supabase  asks Supabase for a sign-in code for --to, exactly as a first
+            sign-in from the app does (an address with no account gets one)
 
 --api is needed for all of them: it is how the script reads the message's
 status back. Needs python3 and the platform's .env beside this file (for the
@@ -259,7 +259,7 @@ if A.forms:
 # 4. A Supabase sign-in code
 if A.supabase:
     t = time.time()
-    req = urllib.request.Request(f"{A.supabase.rstrip('/')}/auth/v1/otp", data=json.dumps({"email": A.to, "create_user": False}).encode(),
+    req = urllib.request.Request(f"{A.supabase.rstrip('/')}/auth/v1/otp", data=json.dumps({"email": A.to, "create_user": True}).encode(),
                                  headers={"apikey": A.anon, "content-type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -273,7 +273,7 @@ if A.supabase:
             why = f"HTTP {e.code}"
         ok = False
         if "signups not allowed" in why.lower():
-            why += f" ({A.to} has no account yet: use an address that has signed in to the app before)"
+            why += " (Supabase → Authentication → Sign In / Providers → Email: allow new users to sign up)"
         elif e.code == 429:
             why += " (Supabase's rate limit: wait a minute, or raise it under Authentication → Rate Limits)"
         elif e.code >= 500:
