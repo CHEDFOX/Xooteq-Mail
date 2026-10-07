@@ -1,14 +1,24 @@
-# Postal, the mail platform. Lives at /opt/postal on the VPS (setup.sh copies it
-# there with the config it fills in). Three Postal processes share one image and
-# one config (the worker also runs the scheduled jobs); MariaDB holds the main database and one database per mail server.
+# The mail platform. Lives at /opt/postal on the VPS (setup.sh and
+# workspace-setup.sh copy it there with the config they fill in).
 #
-#   docker compose up -d                  start / apply changes
-#   docker compose logs -f smtp worker    watch deliveries
-#   docker compose run --rm runner postal make-user     another dashboard login
+#   Postal     app mail: sign-in codes, forms, anything sent from code. Three
+#              processes share one image and one config (the worker also runs
+#              the scheduled jobs); MariaDB holds its databases.
+#   Stalwart   the mailboxes: every company's inbox, aliases, rules and
+#              auto-replies, read in the dashboard or any mail app. It owns
+#              port 25, so all mail for every domain arrives here, and it hands
+#              Postal the bounces addressed to Postal's return paths.
+#   dashboard  Xooteq Mail: the inbox, the admin, the automations, AI replies.
+#   forms      contact forms from the sites.
 #
-# Ports: 25 is SMTP (receives bounces, and submission with STARTTLS); 587 is the
-# same listener for apps whose networks block 25. The dashboard is on
-# 127.0.0.1:5000, behind the VPS's nginx (nginx-postal.conf).
+#   docker compose up -d                        start / apply changes
+#   docker compose logs -f stalwart dashboard   watch the mailboxes
+#   docker compose logs -f smtp worker          watch app mail
+#
+# Ports, public: 25 (incoming mail, Stalwart), 465 (mail apps sending, Stalwart),
+# 993 (mail apps reading, Stalwart), 587 (apps and Supabase sending, Postal).
+# On 127.0.0.1 for nginx: 5000 Postal's admin, 5100 forms, 5200 the dashboard,
+# 8081 Stalwart's own API (engine.py, and its web admin over an SSH tunnel).
 
 x-postal: &postal
   image: ${POSTAL_IMAGE:-ghcr.io/postalserver/postal:3.3.4}
@@ -49,12 +59,13 @@ services:
     ports:
       - "127.0.0.1:5000:5000"
 
+  # Port 587 only: Stalwart owns 25 and relays Postal's bounces to this
+  # container over the compose network (engine.py configure, step 3).
   smtp:
     <<: *postal
     command: postal smtp-server
     cap_add: [NET_BIND_SERVICE]
     ports:
-      - "25:25"
       - "587:25"
 
   worker:
@@ -85,6 +96,57 @@ services:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }
 
+  # The mailboxes. Settings live in its own database (engine.py manages them
+  # over JMAP); /etc/stalwart holds only the small file naming that database.
+  stalwart:
+    image: ${STALWART_IMAGE:-stalwartlabs/stalwart:v0.16.25}
+    environment:
+      # The SMTP greeting and the PTR of the VPS's IP.
+      STALWART_HOSTNAME: smtp.${MAIL_DOMAIN:?set MAIL_DOMAIN in .env}
+      # Only for the very first start (workspace-setup.sh); empty afterwards.
+      STALWART_RECOVERY_ADMIN: ${STALWART_RECOVERY_ADMIN:-}
+    volumes:
+      - stalwart_etc:/etc/stalwart
+      - stalwart_data:/var/lib/stalwart
+      # certbot's certificate, copied here by certbot-hook.sh, readable by uid 2000.
+      - /opt/postal/stalwart-tls:/etc/stalwart/tls:ro
+    ports:
+      - "25:25"
+      - "465:465"
+      - "993:993"
+      - "127.0.0.1:8081:8080"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  # Xooteq Mail, at https://mail.<company domain> behind nginx (nginx-dashboard.conf).
+  dashboard:
+    build: ./dashboard
+    environment:
+      STALWART_URL: http://stalwart:8080
+      STALWART_ADMIN_USER: ${STALWART_ADMIN_USER:-}
+      STALWART_ADMIN_SECRET: ${STALWART_ADMIN_SECRET:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      DASHBOARD_SECRET: ${DASHBOARD_SECRET:-}
+      DASHBOARD_URL: ${DASHBOARD_URL:-}
+      MAIL_DOMAIN: ${MAIL_DOMAIN}
+      VPS_IP: ${VPS_IP}
+      DATA_DIR: /data
+    volumes:
+      - dashboard_data:/data
+    ports:
+      - "127.0.0.1:5200:5200"
+    depends_on:
+      - stalwart
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
 volumes:
   postal_db:
   forms_data:
+  stalwart_etc:
+  stalwart_data:
+  dashboard_data:
