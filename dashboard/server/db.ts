@@ -46,6 +46,9 @@ const migrations: string[] = [
      reason TEXT, draft_id TEXT, created_at INTEGER NOT NULL);
    CREATE INDEX ai_runs_company ON ai_runs(company_id, created_at);
    CREATE UNIQUE INDEX ai_runs_once ON ai_runs(company_id, message_id) WHERE message_id IS NOT NULL;`,
+  // AI replies in send mode wait here (status 'scheduled') until send_at, so they can be stopped.
+  `ALTER TABLE ai_runs ADD COLUMN send_at INTEGER;
+   CREATE INDEX ai_runs_due ON ai_runs(status, send_at);`,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");

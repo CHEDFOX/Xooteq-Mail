@@ -70,10 +70,10 @@ for i in $(seq 1 30); do curl -fs http://127.0.0.1:5200/healthz >/dev/null && br
 curl -fs http://127.0.0.1:5200/healthz >/dev/null || { echo "dashboard not answering (docker compose logs dashboard)"; exit 1; }
 
 # 8. The first login: asked for once, kept in the dashboard's database.
-if ! docker compose exec -T dashboard node server/cli.js has-owner >/dev/null 2>&1; then
+if ! docker compose exec -T dashboard node --disable-warning=ExperimentalWarning server/cli.ts has-owner >/dev/null 2>&1; then
   echo
   echo "== your Xooteq Mail login =="
-  docker compose exec dashboard node server/cli.js create-owner
+  docker compose exec dashboard node --disable-warning=ExperimentalWarning server/cli.ts create-owner
 fi
 
 echo

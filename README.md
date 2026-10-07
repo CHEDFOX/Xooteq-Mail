@@ -29,7 +29,14 @@ xooteq-mail/
   nginx-postal.conf      the dashboard behind the VPS's existing nginx
   certbot-hook.sh        hands renewed certificates to the SMTP server
   .env.example           the few values to fill in
+  dashboard/             Xooteq Mail: the inbox, companies, rules, AI replies
+  engine.py              sets up and configures Stalwart (the mailboxes)
+  workspace-setup.sh     installs or updates Stalwart and Xooteq Mail
+  nginx-dashboard.conf   Xooteq Mail behind the VPS's nginx
 ```
+
+Postal sends; [Xooteq Mail](#xooteq-mail-mailboxes-for-every-domain) receives,
+keeps and answers. Together they replace Google Workspace and Zoho.
 
 ## 0. Before anything: Hostinger
 
@@ -247,21 +254,141 @@ thanked and ignored). Files are not accepted. A form moved over from Web3Forms
 keeps working: only the `action` URL changes and the `access_key` field is
 ignored.
 
-## Receiving: mail sent *to* your domains
+## Xooteq Mail: mailboxes for every domain
 
-Postal also receives. To get replies and anything sent to `hello@tailzu.space`:
+Everything Google Workspace or Zoho did for a domain, here: real mailboxes, an
+inbox in the browser, addresses that each get their own folder (`support@`,
+`contact@`, `billing@` …), rules, auto-replies, and replies written by AI in each
+company's voice with any AI key. Mail apps (phone, Outlook, Apple Mail) work too.
 
-1. At tailzu.space's DNS: `MX` `@` → `10 mx.mail.xooteq.online`. (Only if the
-   domain has no other mail; an MX moves *all* its incoming mail here.)
-2. Dashboard → the Tailzu mail server → **Routes** → *Add*: address `hello`
-   at `tailzu.space`, then what to do with it: **Forward to an address**
-   (`madefox6666@gmail.com`) is the usual one; a **webhook** (an HTTP endpoint
-   that gets the parsed message as JSON) is for an app that wants to react.
-   `*` as the address catches everything on the domain.
+Two parts, both started by `workspace-setup.sh`:
 
-There is no mailbox to log into: mail that arrives is forwarded or handed to a
-webhook, and kept in Postal's log for a while. For a real inbox under a domain,
-use a mailbox provider for that domain and keep Postal for sending.
+- **Stalwart** (open source mail server) holds the mailboxes. It owns port 25, so
+  all mail for every domain arrives there; it hands Postal the bounces for
+  Postal's return paths, and sends what you write through Postal's route.
+- **The dashboard** (`dashboard/`) is the app at `https://mail.xooteq.online`:
+  one company per domain, its inbox, and its settings.
+
+Postal is unchanged: apps and Supabase keep sending on 587.
+
+### Install, and every update
+
+```bash
+cd ~/xooteq-mail && git pull && sudo ./workspace-setup.sh
+```
+
+It makes the secrets it needs (in `.env`), moves port 25 from Postal to Stalwart,
+starts Stalwart and configures it (`engine.py`), builds and starts the dashboard,
+and the first time asks for **your login** (an email and a password, kept in the
+dashboard's database). Run it again after every `git pull`; it keeps what is there.
+
+Then, once:
+
+1. **DNS** at xooteq.online: `A` `mail` → `91.108.104.168` (the dashboard's
+   address). `smtp.mail` and `mx.mail` exist already (step 1).
+2. **nginx + TLS** for the dashboard:
+   ```bash
+   sed "s/MAIL_DOMAIN/mail.xooteq.online/" ~/xooteq-mail/nginx-dashboard.conf \
+     | sudo tee /etc/nginx/sites-available/xooteq-mail.conf >/dev/null
+   sudo ln -sf /etc/nginx/sites-available/xooteq-mail.conf /etc/nginx/sites-enabled/
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo certbot --nginx -d mail.xooteq.online
+   ```
+3. **hPanel firewall**: accept TCP **465** and **993** (mail apps). 25 is open
+   already.
+4. `./check.sh`: the Stalwart lines should all say ok.
+
+Forgot the password: `cd /opt/postal && docker compose exec dashboard node --disable-warning=ExperimentalWarning server/cli.ts reset-password you@example.com`.
+
+### Add a company (one per domain)
+
+Settings → **Add a company**: its name, its domain, the main address (`hello@`)
+and the others (`support@`, `contact@` …), each with the folder its mail is filed
+in. Mail to any of them arrives in the one mailbox: in the Inbox *and* in that
+address's folder, so support mail and contact-form mail never mix.
+
+Then the company's **Domain & DNS** tab lists the records to add at the
+domain's DNS (Hostinger → Domains → DNS): MX, SPF, DKIM and DMARC, each with a
+copy button and a live check. Mail starts arriving once the MX is there.
+
+**Moving from Google Workspace or Zoho**, without losing mail:
+
+1. Add the company here. Add its SPF, DKIM and DMARC records (they do not move
+   mail yet). While the domain's mail is still at Google, do not write from here
+   to that domain's own addresses: this server now counts the domain as its own
+   and keeps such mail locally.
+2. Replace the domain's MX records with the one shown, and delete the old ones.
+   New mail arrives here within the hour.
+3. Copy the old mail across. In the company's **Mail apps** tab set an app
+   password, then (Gmail needs an [app password](https://myaccount.google.com/apppasswords);
+   Zoho: `imappro.zoho.com` for organisation accounts, else `imap.zoho.com`):
+   ```bash
+   docker run --rm gilleslamiral/imapsync imapsync \
+     --host1 imap.gmail.com --ssl1 --user1 hello@tailzu.space --password1 'GOOGLE-APP-PASSWORD' \
+     --host2 mx.mail.xooteq.online --ssl2 --user2 hello@tailzu.space --password2 'MAIL-APP-PASSWORD' \
+     --automap --exclude '\[Gmail\]/All Mail'
+   ```
+   Run it again just before cancelling the old plan, to catch the last mail.
+4. Cancel the old plan.
+
+### AI replies
+
+Settings → **AI providers** → *Add a provider*: Anthropic (Claude), OpenAI,
+Google Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, Together, your own
+Ollama, or any OpenAI-compatible server. Paste the key, *Load models*, pick one,
+*Save and test*. Keys are stored encrypted with `DASHBOARD_SECRET`; change
+provider or key any time.
+
+Each company's **AI replies** tab is its brief: what the company does, how
+replies sound, the facts the AI may use (plans, prices, fixes, links), the rules
+it must keep, and the sign-off. Then, per address under **Addresses**:
+
+- **Off**: nobody answers but you.
+- **Draft**: each new message gets a reply in Drafts, marked *AI reply to review*;
+  open the conversation, *Review and send*.
+- **Send**: the AI answers by itself after the wait set in the brief (2 minutes
+  by default). Until then the conversation shows *AI reply sends in 1:52* with
+  **Stop**, **Edit** and **Send now**. Anything about money, legal matters or a
+  complaint, anything it is unsure of, and a sender's 4th message of the day
+  become drafts instead. Newsletters, robots and no-reply senders are never
+  answered.
+
+Settings → **AI activity** lists every message the AI looked at, what it did and
+why. Plain **auto-replies** (an out-of-office, "we got your message") are set per
+address too, and need no AI.
+
+### Rules
+
+A company's **Rules** tab: when mail matches (sender, recipient, subject, text,
+a header, an attachment name), move it, also file it in a folder, mark it read,
+star it, forward a copy, or delete it. The mail server runs them as mail arrives,
+before auto-replies and AI.
+
+### Using it
+
+Press `?` in the app for every shortcut. The ones worth learning: `C` write,
+`/` search, `⌘K` / `Ctrl K` go anywhere, `J`/`K` move, `E` archive, `#` delete,
+`R` reply, `⌘↵` send (with five seconds to undo), `⌘1`…`⌘9` switch company.
+
+Mail apps: the company's **Mail apps** tab has the settings (IMAP
+`mx.mail.xooteq.online:993`, SMTP `smtp.mail.xooteq.online:465`, both SSL/TLS;
+the username is the main address) and sets the app password.
+
+### Backups
+
+The mail is in the `stalwart_data` volume and the dashboard's settings in
+`dashboard_data` (`docker volume ls`). Back both up with the rest of `/opt/postal`.
+
+### Development
+
+```bash
+cd dashboard && npm install
+npm run dev          # the server, on :5200 (needs a Stalwart; see .env names in server/config.ts)
+npm run dev:web      # the web app with hot reload, on :5173
+npm test             # unit tests
+npm run typecheck
+XM_EMAIL=… XM_PASSWORD=… python3 test/e2e.py   # end to end against a local Stalwart
+```
 
 ## When a code does not arrive
 

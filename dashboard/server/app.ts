@@ -104,8 +104,12 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
       prefix: "/",
       index: false,
       wildcard: false,
+      // @fastify/static 10 hands this Fastify's reply (older versions: the raw response).
       setHeaders: (res, file) => {
-        (res as unknown as import("node:http").ServerResponse).setHeader("cache-control", file.includes(`${path.sep}assets${path.sep}`) ? "public, max-age=31536000, immutable" : "no-cache");
+        const value = file.includes(`${path.sep}assets${path.sep}`) ? "public, max-age=31536000, immutable" : "no-cache";
+        const r = res as unknown as { header?: (k: string, v: string) => void; setHeader?: (k: string, v: string) => void };
+        if (typeof r.header === "function") r.header("cache-control", value);
+        else r.setHeader?.("cache-control", value);
       },
     });
     const index = fs.readFileSync(path.join(web, "index.html"));

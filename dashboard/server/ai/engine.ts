@@ -5,10 +5,11 @@
 //
 //   draft  saves the reply as a draft in the thread (marked "AI draft") for a
 //          person to read, edit and send, or
-//   send   sends it, after the profile's delay (so it can still be cancelled),
-//          unless the model judged it needs a person, the sender already had
-//          today's share of automatic replies, or anything looks off: then a
-//          draft, as above.
+//   send   sends it, after the profile's delay: until then it waits in Drafts
+//          and can be cancelled, sent at once or edited (the scheduler below
+//          sends it when due). Not when the model judged it needs a person,
+//          the sender already had today's share of automatic replies, or
+//          anything looks off: then a draft, as above.
 //
 // Every decision is a row in ai_runs, shown in the dashboard.
 import { config } from "../config.ts";
@@ -203,8 +204,9 @@ export async function saveDraft(box: Mailbox, company: Company, address: Company
   return (res.created as Record<string, { id: string }>).d.id;
 }
 
-/** Sends a saved draft from the address's identity, after delaySeconds (0 for now). */
-export async function sendDraft(box: Mailbox, draftId: string, fromEmail: string, rcpts: string[], delaySeconds: number): Promise<void> {
+/** Sends a saved draft from the address's identity, now. (Stalwart takes HOLDFOR but
+ * neither holds nor cancels local deliveries, so delays are kept here, not there.) */
+export async function sendDraft(box: Mailbox, draftId: string, fromEmail: string): Promise<void> {
   const ids = (await box.call("Identity/get", {})).list as { id: string; email: string }[];
   const identity = ids.find((i) => i.email.toLowerCase() === fromEmail.toLowerCase());
   if (!identity) throw new Error(`no sending identity for ${fromEmail}`);
@@ -212,11 +214,11 @@ export async function sendDraft(box: Mailbox, draftId: string, fromEmail: string
   const drafts = boxes.find((b) => b.role === "drafts")?.id;
   const sent = boxes.find((b) => b.role === "sent")?.id;
   await box.call("EmailSubmission/set", {
-    create: { s: {
-      identityId: identity.id, emailId: draftId,
-      ...(delaySeconds > 0 ? { envelope: { mailFrom: { email: fromEmail, parameters: { HOLDFOR: String(delaySeconds) } }, rcptTo: rcpts.map((email) => ({ email })) } } : {}),
+    create: { s: { identityId: identity.id, emailId: draftId } },
+    onSuccessUpdateEmail: { "#s": {
+      ...(drafts ? { [`mailboxIds/${drafts}`]: null } : {}), ...(sent ? { [`mailboxIds/${sent}`]: true } : {}),
+      "keywords/$draft": null, "keywords/$ai_scheduled": null,
     } },
-    onSuccessUpdateEmail: { "#s": { ...(drafts ? { [`mailboxIds/${drafts}`]: null } : {}), ...(sent ? { [`mailboxIds/${sent}`]: true } : {}), "keywords/$draft": null } },
   });
 }
 
@@ -247,7 +249,7 @@ async function handle(job: Job): Promise<void> {
     const { profile } = getProfile(company.id);
     const text = signed(answer.reply, company, profile.signature);
     const sender = e.from?.[0]?.email?.toLowerCase() ?? "";
-    const sentToday = (db.prepare("SELECT COUNT(*) AS n FROM ai_runs WHERE company_id = ? AND lower(sender) = ? AND status = 'sent' AND created_at > ?")
+    const sentToday = (db.prepare("SELECT COUNT(*) AS n FROM ai_runs WHERE company_id = ? AND lower(sender) = ? AND status IN ('sent', 'scheduled', 'sending') AND created_at > ?")
       .get(company.id, sender, now() - 86_400_000) as { n: number }).n;
 
     let mode: "draft" | "send" = address.aiMode === "send" ? "send" : "draft";
@@ -255,14 +257,20 @@ async function handle(job: Job): Promise<void> {
     if (mode === "send" && answer.decision === "escalate") { mode = "draft"; why = `needs a person: ${answer.reason}`; }
     if (mode === "send" && sentToday >= profile.maxAutoPerSenderPerDay) { mode = "draft"; why = `already answered this sender ${sentToday} times today`; }
 
-    const draftId = await saveDraft(box, company, address, e, text, { $ai: true });
+    const later = mode === "send" && profile.sendDelayMinutes > 0;
+    const draftId = await saveDraft(box, company, address, e, text, later ? { $ai: true, $ai_scheduled: true } : { $ai: true });
+    if (later) {
+      await box.call("Email/set", { update: { [e.id]: { "keywords/$ai_draft": true, "keywords/$ai_scheduled": true } } });
+      db.prepare("UPDATE ai_runs SET status = 'scheduled', reason = ?, draft_id = ?, mode = ?, send_at = ? WHERE id = ?")
+        .run(why, draftId, mode, now() + profile.sendDelayMinutes * 60_000, runId);
+      return;
+    }
     if (mode === "draft") {
       await box.call("Email/set", { update: { [e.id]: { "keywords/$ai_draft": true } } });
       update(runId, { status: answer.decision === "escalate" ? "needs_person" : "drafted", reason: why, draft_id: draftId, mode });
       return;
     }
-    const rcpts = ((e.replyTo?.length ? e.replyTo : e.from) ?? []).map((a) => a.email);
-    await sendDraft(box, draftId, address.email, rcpts, profile.sendDelayMinutes * 60);
+    await sendDraft(box, draftId, address.email);
     await box.call("Email/set", { update: { [e.id]: { "keywords/$answered": true, "keywords/$ai_replied": true } } });
     update(runId, { status: "sent", reason: why, draft_id: draftId, mode });
   } catch (err) {
@@ -289,4 +297,76 @@ export function listRuns(companyId?: string, limit = 100): Record<string, unknow
   return (companyId
     ? db.prepare("SELECT * FROM ai_runs WHERE company_id = ? ORDER BY created_at DESC LIMIT ?").all(companyId, limit)
     : db.prepare("SELECT * FROM ai_runs ORDER BY created_at DESC LIMIT ?").all(limit)) as Record<string, unknown>[];
+}
+
+// ---- replies waiting to be sent (send mode with a delay) ----
+type Due = { id: number; company_id: string; address: string; email_id: string | null; draft_id: string; send_at: number };
+let ticking = false;
+
+/** Sends every scheduled reply that is due. A reply whose draft was edited or deleted is not sent. */
+export async function sendDue(): Promise<number> {
+  if (ticking) return 0;
+  ticking = true;
+  let sent = 0;
+  try {
+    const due = db.prepare("SELECT id, company_id, address, email_id, draft_id, send_at FROM ai_runs WHERE status = 'scheduled' AND send_at <= ? ORDER BY send_at")
+      .all(now()) as Due[];
+    for (const r of due) {
+      // Claim it, so a second tick or process cannot send it twice.
+      if (db.prepare("UPDATE ai_runs SET status = 'sending' WHERE id = ? AND status = 'scheduled'").run(r.id).changes !== 1) continue;
+      try {
+        const company = getCompany(r.company_id);
+        const box = new Mailbox(company.email);
+        const d = ((await box.call("Email/get", { ids: [r.draft_id], properties: ["keywords"] })).list as { keywords: Record<string, boolean> }[])[0];
+        if (!d || !d.keywords.$draft || !d.keywords.$ai_scheduled) {
+          update(r.id, { status: "cancelled", reason: "changed or discarded before it was sent" });
+          if (r.email_id) await box.call("Email/set", { update: { [r.email_id]: { "keywords/$ai_scheduled": null } } }).catch(() => {});
+          continue;
+        }
+        await sendDraft(box, r.draft_id, r.address);
+        if (r.email_id) {
+          await box.call("Email/set", { update: { [r.email_id]: { "keywords/$answered": true, "keywords/$ai_replied": true, "keywords/$ai_draft": null, "keywords/$ai_scheduled": null } } });
+        }
+        update(r.id, { status: "sent" });
+        sent++;
+      } catch (err) {
+        update(r.id, { status: "error", reason: `not sent: ${(err as Error).message}`.slice(0, 300) });
+      }
+    }
+  } finally {
+    ticking = false;
+  }
+  return sent;
+}
+
+export function startScheduler(everyMs = 15_000): () => void {
+  // A send cut short by a restart is tried again.
+  db.prepare("UPDATE ai_runs SET status = 'scheduled' WHERE status = 'sending'").run();
+  const t = setInterval(() => { sendDue().catch(() => {}); }, everyMs);
+  sendDue().catch(() => {});
+  return () => clearInterval(t);
+}
+
+export function scheduled(companyId: string): { id: number; draftId: string; threadId: string | null; emailId: string | null; sendAt: number }[] {
+  return (db.prepare("SELECT id, draft_id, thread_id, email_id, send_at FROM ai_runs WHERE company_id = ? AND status = 'scheduled' ORDER BY send_at").all(companyId) as
+    { id: number; draft_id: string; thread_id: string | null; email_id: string | null; send_at: number }[])
+    .map((r) => ({ id: r.id, draftId: r.draft_id, threadId: r.thread_id, emailId: r.email_id, sendAt: r.send_at }));
+}
+
+/** Stops a waiting reply: it stays in Drafts for a person to review. */
+export async function cancelScheduled(companyId: string, runId: number): Promise<void> {
+  const r = db.prepare("SELECT draft_id, email_id FROM ai_runs WHERE id = ? AND company_id = ? AND status = 'scheduled'").get(runId, companyId) as { draft_id: string; email_id: string | null } | undefined;
+  if (!r) throw new AiError("That reply was already sent or stopped.");
+  update(runId, { status: "drafted", reason: "sending stopped; waiting in Drafts" });
+  const box = new Mailbox(getCompany(companyId).email);
+  await box.call("Email/set", { update: {
+    [r.draft_id]: { "keywords/$ai_scheduled": null },
+    ...(r.email_id ? { [r.email_id]: { "keywords/$ai_scheduled": null } } : {}),
+  } });
+}
+
+export async function sendScheduledNow(companyId: string, runId: number): Promise<void> {
+  const changed = db.prepare("UPDATE ai_runs SET send_at = ? WHERE id = ? AND company_id = ? AND status = 'scheduled'").run(now(), runId, companyId).changes;
+  if (!changed) throw new AiError("That reply was already sent or stopped.");
+  await sendDue();
 }

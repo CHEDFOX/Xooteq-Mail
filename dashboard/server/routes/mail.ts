@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { requireOwner } from "../auth.ts";
 import { getCompany, InputError, listCompanies } from "../companies.ts";
 import { Mailbox, MAIL_USING } from "../stalwart.ts";
-import { suggestReply } from "../ai/engine.ts";
+import { cancelScheduled, scheduled, sendScheduledNow, suggestReply } from "../ai/engine.ts";
 
 const ALLOWED = new RegExp("^(" + [
   "Core/echo",
@@ -129,6 +129,17 @@ export async function mailRoutes(app: FastifyInstance) {
       }
     }));
     return out;
+  });
+
+  // AI replies waiting to be sent, and stopping or sending one.
+  app.get("/api/c/:cid/ai/scheduled", async (req) => scheduled(companyOf(req).id));
+  app.post("/api/c/:cid/ai/scheduled/:id/cancel", async (req) => {
+    await cancelScheduled(companyOf(req).id, Number((req.params as { id: string }).id));
+    return { ok: true };
+  });
+  app.post("/api/c/:cid/ai/scheduled/:id/send", async (req) => {
+    await sendScheduledNow(companyOf(req).id, Number((req.params as { id: string }).id));
+    return { ok: true };
   });
 
   app.post("/api/c/:cid/ai/suggest", async (req) => {

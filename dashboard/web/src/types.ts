@@ -1,0 +1,61 @@
+export type AiMode = "off" | "draft" | "send";
+
+export type AutoReply = { enabled: boolean; subject: string; body: string; days: number; start?: string; end?: string };
+
+export type Address = {
+  id: number; local: string; email: string; label: string; isPrimary: boolean; aiMode: AiMode; autoReply?: AutoReply | null;
+};
+
+export type Company = {
+  id: string; name: string; domain: string; email: string; color: string; signature: string; addresses: Address[];
+};
+
+export type Me = {
+  owner: { id: number; email: string; name: string };
+  companies: Company[];
+  mailDomain: string;
+  hosts: { mx: string; smtp: string; imap: string; spfInclude: string };
+  setupMissing: string[];
+};
+
+export type Condition = { field: "from" | "to" | "subject" | "body" | "header" | "attachment"; op: "contains" | "is" | "starts" | "ends" | "not-contains"; value: string; header?: string };
+export type Action = { type: "move" | "label" | "read" | "star" | "forward" | "delete" | "stop"; value?: string };
+export type Rule = { id?: number; name: string; enabled: boolean; match: "all" | "any"; conditions: Condition[]; actions: Action[] };
+
+export type DnsRecord = {
+  kind: "MX" | "SPF" | "DKIM" | "DMARC" | "SRV"; type: string; name: string; host: string; value: string; priority?: number;
+  required: boolean; why: string; status?: "ok" | "missing" | "differs" | "unknown"; current?: string[]; note?: string;
+};
+
+export type Provider = { id: number; name: string; kind: "anthropic" | "openai"; baseUrl: string; model: string; keyHint: string };
+export type Preset = { id: string; name: string; kind: "anthropic" | "openai"; baseUrl: string; model?: string; keyless?: boolean; hint: string };
+
+export type Profile = {
+  about: string; voice: string; knowledge: string; policies: string; signature: string;
+  replyLanguage: "sender" | "english"; sendDelayMinutes: number; maxAutoPerSenderPerDay: number;
+};
+
+export type AiRun = {
+  id: number; company_id: string; address: string | null; message_id: string | null; email_id: string | null; thread_id: string | null;
+  sender: string | null; subject: string | null; mode: string | null; status: string; reason: string | null; draft_id: string | null; created_at: number;
+};
+
+// ---- JMAP mail objects (the subset the app reads) ----
+export type EmailAddress = { name?: string | null; email: string };
+
+export type Mailbox = {
+  id: string; name: string; parentId: string | null; role: string | null; sortOrder: number;
+  totalEmails: number; unreadEmails: number; totalThreads: number; unreadThreads: number;
+};
+
+export type BodyPart = { partId?: string; blobId?: string; type: string; name?: string | null; size?: number; cid?: string | null; disposition?: string | null };
+
+export type Email = {
+  id: string; threadId: string; mailboxIds: Record<string, boolean>; keywords: Record<string, boolean>;
+  from?: EmailAddress[] | null; to?: EmailAddress[] | null; cc?: EmailAddress[] | null; bcc?: EmailAddress[] | null; replyTo?: EmailAddress[] | null;
+  subject?: string | null; preview?: string; receivedAt: string; sentAt?: string | null; size?: number;
+  hasAttachment?: boolean; messageId?: string[] | null; references?: string[] | null; inReplyTo?: string[] | null;
+  textBody?: BodyPart[]; htmlBody?: BodyPart[]; attachments?: BodyPart[]; bodyValues?: Record<string, { value: string }>;
+};
+
+export type Identity = { id: string; name: string; email: string; replyTo?: EmailAddress[] | null; textSignature?: string; htmlSignature?: string };
