@@ -49,6 +49,8 @@ const migrations: string[] = [
   // AI replies in send mode wait here (status 'scheduled') until send_at, so they can be stopped.
   `ALTER TABLE ai_runs ADD COLUMN send_at INTEGER;
    CREATE INDEX ai_runs_due ON ai_runs(status, send_at);`,
+  // The name each address sends as ("Tailzu Support"); empty means the company's name.
+  `ALTER TABLE addresses ADD COLUMN display_name TEXT NOT NULL DEFAULT '';`,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");

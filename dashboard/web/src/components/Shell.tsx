@@ -17,7 +17,7 @@ import { Settings } from "./settings/Settings";
 
 export function Shell({ route }: { route: Route }) {
   const app = useApp();
-  const { me, compose, setCompose, setPalette, setHelp, palette, help } = app;
+  const { me, compose, setCompose, setPalette, setHelp, palette, help, viewAddress } = app;
   const [drawer, setDrawer] = useState(false);
   const pendingG = useRef(0);
   const cid = route.page === "mail" || route.page === "search" ? route.cid : undefined;
@@ -43,13 +43,13 @@ export function Shell({ route }: { route: Route }) {
         return;
       }
       if (e.key === "g") { pendingG.current = Date.now(); return; }
-      if (e.key === "c" && target) { e.preventDefault(); setCompose({ kind: "new", cid: target.id }); }
+      if (e.key === "c" && target) { e.preventDefault(); setCompose({ kind: "new", cid: target.id, from: target.id === company?.id ? viewAddress : undefined }); }
       else if (e.key === "/") { const s = document.getElementById("mail-search"); if (s) { e.preventDefault(); s.focus(); } }
       else if (e.key === "?") { e.preventDefault(); setHelp(true); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [me, company, palette, help, setPalette, setHelp, setCompose]);
+  }, [me, company, palette, help, setPalette, setHelp, setCompose, viewAddress]);
 
   useEffect(() => setDrawer(false), [route]);
 
@@ -71,7 +71,7 @@ export function Shell({ route }: { route: Route }) {
               <span className="mobile-co"><span className="sidebar-dot" style={{ background: company.color }} />{company.name}</span>
             </div>
             <MailView key={company.id} route={route} company={company} />
-            <button className="fab" aria-label="Write" onClick={() => setCompose({ kind: "new", cid: company.id })}><Pencil size={20} /></button>
+            <button className="fab" aria-label="Write" onClick={() => setCompose({ kind: "new", cid: company.id, from: viewAddress })}><Pencil size={20} /></button>
           </main>
         </>
       ) : route.page === "settings" ? (
@@ -90,7 +90,7 @@ function MailSidebar({ route, companyId, onClose }: { route: Route; companyId: s
   const app = useApp();
   const company = app.company(companyId)!;
   const data = useMailData(app.jmap(companyId));
-  return <Sidebar company={company} boxes={data.boxes} route={route} onCompose={() => app.setCompose({ kind: "new", cid: companyId })} onNavigate={onClose} />;
+  return <Sidebar company={company} boxes={data.boxes} route={route} onCompose={() => app.setCompose({ kind: "new", cid: companyId, from: app.viewAddress })} onNavigate={onClose} />;
 }
 
 function FloatingComposer() {

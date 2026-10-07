@@ -24,7 +24,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.get("/api/me", { preHandler: requireOwner }, async (req) => ({
     owner: req.owner,
     companies: listCompanies().map((c) => ({ id: c.id, name: c.name, domain: c.domain, email: c.email, color: c.color, signature: c.signature,
-      addresses: c.addresses.map((a) => ({ id: a.id, email: a.email, local: a.local, label: a.label, isPrimary: a.isPrimary, aiMode: a.aiMode })) })),
+      addresses: c.addresses.map((a) => ({ id: a.id, email: a.email, local: a.local, label: a.label, isPrimary: a.isPrimary, aiMode: a.aiMode, displayName: a.displayName })) })),
     mailDomain: config.mailDomain,
     hosts,
     setupMissing: assertReady(),

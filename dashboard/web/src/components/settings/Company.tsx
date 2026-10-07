@@ -6,7 +6,7 @@ import { go, href, onNav } from "../../router";
 import { useApp } from "../../store";
 import type { Address, AiMode, AutoReply, Company, DnsRecord, Provider, Rule } from "../../types";
 import { cls, initials } from "../../util";
-import { Alert, At, Check, Copy, Folder, Globe, Mail, Refresh, Sparkle, Trash } from "../../icons";
+import { Alert, At, Check, Copy, Folder, Globe, Mail, Pencil, Refresh, Sparkle, Trash } from "../../icons";
 import { Button, Card, Field, Input, Modal, Pill, Segmented, Spinner, Textarea, Toggle } from "../../ui";
 import { PageHead } from "./Settings";
 import { COLORS } from "./Companies";
@@ -68,6 +68,7 @@ function Addresses({ c, onChange }: { c: FullCompany; onChange: (c: FullCompany)
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<Address | null>(null);
+  const [naming, setNaming] = useState<Address | null>(null);
   const [providers, setProviders] = useState<Provider[] | null>(null);
   useEffect(() => { get<Provider[]>("/api/ai/providers").then(setProviders).catch(() => setProviders([])); }, []);
 
@@ -104,7 +105,11 @@ function Addresses({ c, onChange }: { c: FullCompany; onChange: (c: FullCompany)
               <span className="addr-icon">{a.isPrimary ? <Mail size={16} /> : <At size={16} />}</span>
               <div>
                 <div className="addr-email">{a.email}{a.isPrimary && <Pill>Main</Pill>}</div>
-                <div className="addr-folder">{a.isPrimary ? "Arrives in the Inbox" : <><Folder size={13} />Filed in “{a.label}”</>}</div>
+                <div className="addr-folder">
+                  <span>Sends as {a.displayName || c.name}</span>
+                  <span className="addr-dot" aria-hidden>·</span>
+                  {a.isPrimary ? "Arrives in the Inbox" : <><Folder size={13} />Filed in “{a.label}”</>}
+                </div>
               </div>
             </div>
             <div className="addr-ctl">
@@ -120,6 +125,7 @@ function Addresses({ c, onChange }: { c: FullCompany; onChange: (c: FullCompany)
                   onChange={(v) => apply(`ai-${a.id}`, () => patch(`${base}/addresses/${a.id}`, { aiMode: v }),
                     v === "off" ? `AI is off for ${a.email}.` : v === "draft" ? `AI will draft replies to ${a.email} for you to check.` : `AI will answer ${a.email} by itself.`)} />
               </div>
+              <button className="icon-btn" aria-label={`Edit ${a.email}`} data-tip="Sender name and folder" onClick={() => setNaming(a)}><Pencil size={16} /></button>
               {a.isPrimary ? <span className="icon-btn-space" aria-hidden /> : (
                 <button className="icon-btn" aria-label={`Remove ${a.email}`} data-tip="Remove address" disabled={busy === `rm-${a.id}`}
                   onClick={() => { if (confirm(`Stop receiving mail at ${a.email}? Mail already filed stays in its folder.`)) apply(`rm-${a.id}`, () => del(`${base}/addresses/${a.id}`), `${a.email} removed.`); }}>
@@ -148,11 +154,41 @@ function Addresses({ c, onChange }: { c: FullCompany; onChange: (c: FullCompany)
         <div><b>Draft</b> AI reads each new message and leaves a reply in Drafts, marked for review. Nothing is sent until you send it.</div>
         <div><b>Send</b> AI answers by itself after a short wait you can cancel. Anything about money, complaints or legal matters, or anything it is unsure of, becomes a draft for you instead.</div>
       </div>
+      {naming && (
+        <AddressEditor address={naming} company={c} onClose={() => setNaming(null)}
+          onSave={async (p) => { if (await apply(`name-${naming.id}`, () => patch(`${base}/addresses/${naming.id}`, p), `Saved ${naming.email}.`)) setNaming(null); }} />
+      )}
       {editing && (
         <AutoReplyEditor address={editing} company={c} onClose={() => setEditing(null)}
           onSave={async (r) => { if (await apply(`ar-${editing.id}`, () => patch(`${base}/addresses/${editing.id}`, { autoReply: r }), r.enabled ? `Auto-reply on for ${editing.email}.` : `Auto-reply off for ${editing.email}.`)) setEditing(null); }} />
       )}
     </>
+  );
+}
+
+function AddressEditor({ address, company, onClose, onSave }: { address: Address; company: Company; onClose: () => void; onSave: (p: { displayName: string; label?: string }) => void }) {
+  const [name, setName] = useState(address.displayName ?? "");
+  const [label, setLabel] = useState(address.label);
+  const shown = name.replace(/["<>\\]+/g, " ").replace(/\s+/g, " ").trim() || company.name;
+  return (
+    <Modal open onClose={onClose} title={<>Edit <span className="mono">{address.email}</span></>} width={540}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" onClick={() => onSave({ displayName: name, ...(address.isPrimary ? {} : { label }) })}>Save</Button></>}>
+      <form className="form" onSubmit={(e) => { e.preventDefault(); onSave({ displayName: name, ...(address.isPrimary ? {} : { label }) }); }}>
+        <Field label="Sender name" hint={<>What people see as the sender of mail from this address: yours, its auto-reply and AI replies. Leave it empty to use “{company.name}”.</>}>
+          <Input id="sender-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={company.name} maxLength={80} autoFocus />
+        </Field>
+        <div className="sender-preview" aria-label="Their inbox shows">
+          <span className="mini-label">Their inbox shows</span>
+          <b>{shown}</b> <span>&lt;{address.email}&gt;</span>
+        </div>
+        {!address.isPrimary && (
+          <Field label="Folder" hint="Where its mail is filed, besides the Inbox.">
+            <Input id="folder-name" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={40} />
+          </Field>
+        )}
+      </form>
+    </Modal>
   );
 }
 

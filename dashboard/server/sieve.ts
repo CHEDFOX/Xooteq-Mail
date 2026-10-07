@@ -28,6 +28,8 @@ export type Address = {
   label: string;
   isPrimary: boolean;
   autoReply: AutoReply | null;
+  /** The name it sends as; auto-replies use it too. */
+  displayName?: string;
 };
 
 export type Condition = {
@@ -137,7 +139,7 @@ export function compile(domain: string, addresses: Address[], rules: Rule[]): st
     const days = Math.max(1, Math.min(365, Math.round(r.days || 1)));
     const head = `${i === 0 ? "if" : "elsif"} ${conds.length === 1 ? conds[0] : `allof (${conds.join(", ")})`} {`;
     lines.push(head,
-      `  vacation :days ${days} :from ${q(addr)} :subject ${q(r.subject || "Thanks for your message")} :handle ${q("xm-" + a.local)} ${text(r.body)}  ;`,
+      `  vacation :days ${days} :from ${q(a.displayName ? `"${a.displayName}" <${addr}>` : addr)} :subject ${q(r.subject || "Thanks for your message")} :handle ${q("xm-" + a.local)} ${text(r.body)}  ;`,
       "}");
   });
   return lines.join("\r\n") + "\r\n";

@@ -1,5 +1,6 @@
 // The company's folders: Inbox, one per address, the system folders, the rest.
-import { buildFolders, type Folder } from "../folders";
+import { useEffect, useState } from "react";
+import { buildFolders, mainOnly, type Folder } from "../folders";
 import { href, onNav, type Route } from "../router";
 import { useApp } from "../store";
 import { cls } from "../util";
@@ -13,8 +14,20 @@ const ICONS: Record<string, (p: { size?: number }) => React.ReactElement> = {
 export function Sidebar({ company, boxes, route, onCompose, onNavigate }: {
   company: Company; boxes: Mailbox[]; route: Route; onCompose: () => void; onNavigate?: () => void;
 }) {
-  const { unread } = useApp();
+  const { unread, jmap } = useApp();
   const f = buildFolders(boxes, company);
+  const primary = company.addresses.find((a) => a.isPrimary);
+  // The main address is a view of the Inbox (mail filed under no other address); its unread count is asked for.
+  const [mainUnread, setMainUnread] = useState(0);
+  useEffect(() => {
+    const m = mainOnly(f);
+    if (!m || company.addresses.length < 2) return;
+    jmap(company.id).count({ operator: "AND", conditions: [m, { notKeyword: "$seen" }] }).then(setMainUnread).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boxes, company.id, company.addresses.length]);
+  const main: Folder | null = f.inbox && primary && company.addresses.length > 1
+    ? { key: "main", id: f.inbox.id, name: primary.local.replace(/[._+-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), role: null, kind: "address", unread: mainUnread, total: 0, email: primary.email }
+    : null;
   const current = route.page === "mail" ? route.box : "";
   const aiDrafts = unread[company.id]?.aiDrafts ?? 0;
 
@@ -48,7 +61,8 @@ export function Sidebar({ company, boxes, route, onCompose, onNavigate }: {
       </header>
       <nav className="sidebar-nav" aria-label="Folders">
         {f.inbox && item(f.inbox, <Inbox size={17} />)}
-        {f.addresses.length > 0 && <div className="nav-section">Addresses</div>}
+        {(main || f.addresses.length > 0) && <div className="nav-section">Addresses</div>}
+        {main && item(main, <At size={17} />)}
         {f.addresses.map((x) => item(x, <At size={17} />))}
         <div className="nav-section">Mail</div>
         {f.system.map((x) => item(x, (ICONS[x.key] ?? FolderIcon)({ size: 17 }),

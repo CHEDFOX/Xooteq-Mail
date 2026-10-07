@@ -11,7 +11,7 @@ export type Toast = { id: number; text: string; tone?: "ok" | "error" | "info"; 
 export type Unread = Record<string, { inbox: number; drafts: number; aiDrafts: number }>;
 
 export type ComposeIntent =
-  | { kind: "new"; cid: string; to?: string }
+  | { kind: "new"; cid: string; to?: string; from?: string }
   | { kind: "reply" | "replyAll" | "forward"; cid: string; email: Email; aiText?: string }
   | { kind: "draft"; cid: string; email: Email; replyTo?: string };
 
@@ -34,6 +34,9 @@ type Ctx = {
   setCompose: (c: ComposeIntent | null) => void;
   help: boolean;
   setHelp: (open: boolean) => void;
+  /** The address the open view is about (its folder or filter), so new mail starts from it. */
+  viewAddress: string | undefined;
+  setViewAddress: (email: string | undefined) => void;
 };
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -52,6 +55,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [palette, setPalette] = useState(false);
   const [compose, setCompose] = useState<ComposeIntent | null>(null);
   const [help, setHelp] = useState(false);
+  const [viewAddress, setViewAddress] = useState<string | undefined>(undefined);
   const clients = useRef(new Map<string, Jmap>());
   const nextId = useRef(1);
 
@@ -107,8 +111,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!j) { j = new Jmap(cid); clients.current.set(cid, j); }
       return j;
     },
-    theme, setTheme: setThemeState, toast, dismiss, toasts, palette, setPalette, compose, setCompose, help, setHelp,
-  }), [me, loading, refreshMe, unread, refreshUnread, theme, toast, dismiss, toasts, palette, compose, help]);
+    theme, setTheme: setThemeState, toast, dismiss, toasts, palette, setPalette, compose, setCompose, help, setHelp, viewAddress, setViewAddress,
+  }), [me, loading, refreshMe, unread, refreshUnread, theme, toast, dismiss, toasts, palette, compose, help, viewAddress]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

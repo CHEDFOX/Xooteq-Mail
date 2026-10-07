@@ -4,6 +4,8 @@ export type AutoReply = { enabled: boolean; subject: string; body: string; days:
 
 export type Address = {
   id: number; local: string; email: string; label: string; isPrimary: boolean; aiMode: AiMode; autoReply?: AutoReply | null;
+  /** The name it sends as; empty means the company's name. */
+  displayName?: string;
 };
 
 export type Company = {

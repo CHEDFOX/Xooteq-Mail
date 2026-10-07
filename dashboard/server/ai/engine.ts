@@ -193,7 +193,7 @@ export async function saveDraft(box: Mailbox, company: Company, address: Company
   const res = await box.call("Email/set", { create: { d: {
     mailboxIds: { [drafts]: true },
     keywords: { $draft: true, $seen: true, ...keywords },
-    from: [{ name: company.name, email: address.email }],
+    from: [{ name: address.displayName || company.name, email: address.email }],
     to,
     subject,
     ...(e.messageId?.length ? { inReplyTo: e.messageId, references: [...(e.references ?? []), ...e.messageId] } : {}),

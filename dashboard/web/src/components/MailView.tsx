@@ -3,7 +3,7 @@
 // driven from the keyboard the way the big mail apps are.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ThreadRow } from "../jmap";
-import { folderFor, buildFolders } from "../folders";
+import { folderFor, buildFolders, mainOnly, type Folder as FolderView } from "../folders";
 import { refreshMailData, useMailData } from "../mailData";
 import { go, type Route } from "../router";
 import { useApp } from "../store";
@@ -25,13 +25,18 @@ export function isTyping(e: KeyboardEvent): boolean {
 }
 
 export function MailView({ route, company }: { route: MailRoute; company: Company }) {
-  const { jmap, setCompose, compose, toast, refreshUnread, palette, help } = useApp();
+  const { jmap, setCompose, compose, toast, refreshUnread, palette, help, setViewAddress } = useApp();
   const j = jmap(company.id);
   const data = useMailData(j);
   const box = route.page === "mail" ? route.box : undefined;
   const q = route.page === "search" ? route.q : "";
-  const folder = box ? folderFor(box, data.boxes, company) : undefined;
   const folders = useMemo(() => buildFolders(data.boxes, company), [data.boxes, company]);
+  const primary = company.addresses.find((a) => a.isPrimary);
+  // "main" is the main address's view of the Inbox; everything else is a real folder.
+  const folder: FolderView | undefined = box === "main"
+    ? (folders.inbox && primary ? { ...folders.inbox, key: "main", kind: "address", email: primary.email,
+        name: primary.local.replace(/[._+-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), unread: 0 } : undefined)
+    : box ? folderFor(box, data.boxes, company) : undefined;
 
   const [rows, setRows] = useState<ThreadRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -50,6 +55,11 @@ export function MailView({ route, company }: { route: MailRoute; company: Compan
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const key = `${company.id}|${box ?? ""}|${q}|${activeAddr}`;
+
+  // New mail starts from the address on screen: its folder, or the chosen filter.
+  const viewing = folder?.kind === "address" ? folder.email : activeAddr || undefined;
+  useEffect(() => { setViewAddress(viewing); }, [viewing, setViewAddress]);
+  useEffect(() => () => setViewAddress(undefined), [setViewAddress]);
   const keyRef = useRef(key);
   keyRef.current = key;
 
@@ -58,7 +68,8 @@ export function MailView({ route, company }: { route: MailRoute; company: Compan
     if (route.page === "search") {
       const skip = data.boxes.filter((b) => b.role === "trash" || b.role === "junk").map((b) => b.id);
       base = skip.length ? { operator: "AND", conditions: [{ text: q }, { inMailboxOtherThan: skip }] } : { text: q };
-    } else base = folder ? { inMailbox: folder.id } : null;
+    } else if (box === "main") base = mainOnly(folders);
+    else base = folder ? { inMailbox: folder.id } : null;
     if (!base || !activeAddr) return base;
     // Mail for one address. In the Inbox that is its folder (filed by the server from
     // the envelope, so Bcc counts too), and for the main address everything filed in
@@ -354,6 +365,7 @@ export function MailView({ route, company }: { route: MailRoute; company: Compan
 
 function emptyFor(box: string, email: string | undefined, c: Company): { title: string; text: string } {
   switch (box) {
+    case "main": return { title: "Nothing here", text: `Mail to ${c.email} that isn't for one of ${c.name}'s other addresses shows here.` };
     case "inbox": return { title: "Inbox zero", text: `Nothing waiting. Mail to ${c.email} and ${c.name}'s other addresses arrives here.` };
     case "drafts": return { title: "No drafts", text: "Mail you start and do not send waits here, and so do replies the AI wrote for you to check." };
     case "sent": return { title: "Nothing sent yet", text: `Mail you send from ${c.domain} is kept here.` };

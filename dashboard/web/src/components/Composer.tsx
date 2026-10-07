@@ -27,12 +27,21 @@ function signatureHtml(sig: string): string {
   return sig.trim() ? `<p><br></p><div class="xm-sig">${textToHtml(sig.trim())}</div>` : "";
 }
 
+/** The name an address sends as: its own, or the company's. */
+const senderName = (c: Company, email: string) => c.addresses.find((a) => a.email.toLowerCase() === email.toLowerCase())?.displayName || c.name;
+
 function initial(intent: ComposeIntent, c: Company): { draft: Draft; html: string; atts: Att[] } {
+  const r = start(intent, c);
+  return { ...r, draft: { ...r.draft, fromName: senderName(c, r.draft.fromEmail) } };
+}
+
+function start(intent: ComposeIntent, c: Company): { draft: Draft; html: string; atts: Att[] } {
   const primary = c.addresses.find((a) => a.isPrimary) ?? c.addresses[0];
   const mine = ours(c);
   const base: Draft = { fromEmail: primary.email, fromName: c.name, to: [], cc: [], bcc: [], subject: "", html: "", text: "", attachments: [] };
   if (intent.kind === "new") {
-    return { draft: { ...base, to: intent.to ? [{ email: intent.to }] : [] }, html: `<p><br></p>${signatureHtml(c.signature)}`, atts: [] };
+    const from = c.addresses.find((a) => a.email === intent.from)?.email ?? primary.email;
+    return { draft: { ...base, fromEmail: from, to: intent.to ? [{ email: intent.to }] : [] }, html: `<p><br></p>${signatureHtml(c.signature)}`, atts: [] };
   }
   const e = intent.email;
   if (intent.kind === "draft") {
@@ -258,8 +267,8 @@ export function Composer({ intent, company, jmap, boxes, identities, inline, onC
       <div className="cmp-fields">
         <label className="cmp-row">
           <span className="cmp-label">From</span>
-          <select className="cmp-from" value={d.fromEmail} onChange={(e) => update({ fromEmail: e.target.value })}>
-            {company.addresses.map((a) => <option key={a.email} value={a.email}>{company.name} &lt;{a.email}&gt;</option>)}
+          <select className="cmp-from" value={d.fromEmail} onChange={(e) => update({ fromEmail: e.target.value, fromName: senderName(company, e.target.value) })}>
+            {company.addresses.map((a) => <option key={a.email} value={a.email}>{a.displayName || company.name} &lt;{a.email}&gt;</option>)}
           </select>
         </label>
         <div className="cmp-row">

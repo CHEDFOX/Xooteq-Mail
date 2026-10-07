@@ -10,7 +10,7 @@ import { compile, deploy, type Address, type AutoReply, type Rule } from "./siev
 
 export type AiMode = "off" | "draft" | "send";
 
-export type CompanyAddress = Address & { id: number; email: string; aiMode: AiMode };
+export type CompanyAddress = Address & { id: number; email: string; aiMode: AiMode; displayName: string };
 export type Company = {
   id: string;
   name: string;
@@ -43,13 +43,13 @@ const titled = (local: string) => local.replace(/[._+-]+/g, " ").replace(/\b\w/g
 const slug = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "company";
 
 type CompanyRow = { id: string; name: string; domain: string; local: string; account_id: string; color: string; signature: string };
-type AddressRow = { id: number; company_id: string; local: string; label: string; is_primary: number; auto_reply: string | null; ai_mode: AiMode };
+type AddressRow = { id: number; company_id: string; local: string; label: string; is_primary: number; auto_reply: string | null; ai_mode: AiMode; display_name: string };
 type RuleRow = { id: number; company_id: string; name: string; enabled: number; match: "all" | "any"; conditions: string; actions: string; position: number };
 
 function toAddress(r: AddressRow, domain: string): CompanyAddress {
   return {
     id: r.id, local: r.local, email: `${r.local}@${domain}`, label: r.label, isPrimary: !!r.is_primary,
-    autoReply: json<AutoReply | null>(r.auto_reply, null), aiMode: r.ai_mode,
+    autoReply: json<AutoReply | null>(r.auto_reply, null), aiMode: r.ai_mode, displayName: r.display_name ?? "",
   };
 }
 
@@ -199,7 +199,12 @@ export async function addAddress(companyId: string, input: { local: unknown; lab
   return getCompany(companyId);
 }
 
-export async function updateAddress(companyId: string, addressId: number, patch: { label?: unknown; autoReply?: unknown; aiMode?: unknown }): Promise<Company> {
+/** A sender name: one line, no quotes or angle brackets (they would break the From header). */
+export function cleanDisplayName(v: unknown): string {
+  return String(v ?? "").replace(/[\r\n\t"<>\\]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+export async function updateAddress(companyId: string, addressId: number, patch: { label?: unknown; autoReply?: unknown; aiMode?: unknown; displayName?: unknown }): Promise<Company> {
   const c = getCompany(companyId);
   const a = c.addresses.find((x) => x.id === addressId);
   if (!a) throw new InputError("No such address.");
@@ -218,10 +223,11 @@ export async function updateAddress(companyId: string, addressId: number, patch:
     } : null;
     if (autoReply?.enabled && !autoReply.body.trim()) throw new InputError("Write the auto-reply's message, or turn it off.");
   }
-  db.prepare("UPDATE addresses SET label = ?, ai_mode = ?, auto_reply = ? WHERE id = ?")
-    .run(label, aiMode, autoReply ? JSON.stringify(autoReply) : null, addressId);
+  const displayName = patch.displayName !== undefined ? cleanDisplayName(patch.displayName) : a.displayName;
+  db.prepare("UPDATE addresses SET label = ?, ai_mode = ?, auto_reply = ?, display_name = ? WHERE id = ?")
+    .run(label, aiMode, autoReply ? JSON.stringify(autoReply) : null, displayName, addressId);
   if (label !== a.label) await renameFolder(c, a.label, label);
-  if (label !== a.label || patch.autoReply !== undefined) await redeploy(companyId);
+  if (label !== a.label || patch.autoReply !== undefined || (displayName !== a.displayName && autoReply?.enabled)) await redeploy(companyId);
   return getCompany(companyId);
 }
 

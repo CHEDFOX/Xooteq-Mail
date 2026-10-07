@@ -89,6 +89,12 @@ export class Jmap {
     return g.list as Email[];
   }
 
+  /** How many conversations match. */
+  async count(filter: Record<string, unknown>): Promise<number> {
+    const [q] = await this.request([["Email/query", { filter, collapseThreads: true, calculateTotal: true, limit: 1 }, "q"]]);
+    return Number(q.total ?? 0);
+  }
+
   async email(id: string): Promise<Email | null> {
     const [g] = await this.request([["Email/get", { ids: [id], properties: FULL_PROPS, bodyProperties: BODY_PROPS, fetchHTMLBodyValues: true, fetchTextBodyValues: true, maxBodyValueBytes: 2_000_000 }, "g"]]);
     return (g.list as Email[])[0] ?? null;

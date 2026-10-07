@@ -57,3 +57,11 @@ export function folderFor(key: string, boxes: Mailbox[], company?: Company): Fol
   const f = buildFolders(boxes, company);
   return [f.inbox, ...f.addresses, ...f.system, ...f.other].find((x) => x?.key === key) as Folder | undefined;
 }
+
+/** Mail for the main address: in the Inbox and filed under no other address. */
+export function mainOnly(f: ReturnType<typeof buildFolders>): Record<string, unknown> | null {
+  if (!f.inbox) return null;
+  return f.addresses.length
+    ? { operator: "AND", conditions: [{ inMailbox: f.inbox.id }, { operator: "NOT", conditions: f.addresses.map((x) => ({ inMailbox: x.id })) }] }
+    : { inMailbox: f.inbox.id };
+}

@@ -27,7 +27,7 @@ function score(text: string, q: string): number {
 }
 
 export function Palette({ route }: { route: Route }) {
-  const { me, setPalette, setCompose, setTheme, setHelp, jmap, company: getCompany } = useApp();
+  const { me, setPalette, setCompose, setTheme, setHelp, jmap, company: getCompany, viewAddress } = useApp();
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -40,7 +40,7 @@ export function Palette({ route }: { route: Route }) {
     const out: Cmd[] = [];
     const run = (fn: () => void) => () => { close(); fn(); };
     if (current) {
-      out.push({ id: "compose", label: `Write from ${current.name}`, hint: "C", group: "Actions", icon: <Pencil size={16} />, run: run(() => setCompose({ kind: "new", cid: current.id })), keywords: "compose new email message" });
+      out.push({ id: "compose", label: `Write from ${current.name}`, hint: "C", group: "Actions", icon: <Pencil size={16} />, run: run(() => setCompose({ kind: "new", cid: current.id, from: current.id === cid ? viewAddress : undefined })), keywords: "compose new email message" });
       const f = buildFolders(data.boxes, current);
       for (const x of [f.inbox, ...f.addresses, ...f.system, ...f.other]) {
         if (!x) continue;
