@@ -69,6 +69,11 @@ ap.add_argument("--anon", metavar="KEY", help="with --supabase: the project's an
 A = ap.parse_args()
 if A.supabase and not A.anon:
     ap.error("--supabase needs --anon")
+for flag, val in (("--api", A.api), ("--smtp", A.smtp), ("--anon", A.anon), ("--forms", A.forms)):
+    if val and (not val.isascii() or "•" in val or val.startswith("THE_")):
+        ap.error(f"{flag} is not a real key (a placeholder, or a masked copy with ••••): paste the value itself")
+if A.anon and not A.anon.startswith("eyJ"):
+    ap.error("--anon should be the project's anon (public) key, a long string starting with eyJ: Supabase → Project Settings → API Keys")
 
 TOKEN = uuid.uuid4().hex[:8]
 SUBJECT = f"Xooteq Mail test {TOKEN}"
@@ -247,7 +252,7 @@ if A.supabase:
             why += " (Supabase's rate limit: wait a minute, or raise it under Authentication → Rate Limits)"
         elif e.code >= 500:
             why += " (Supabase could not hand the mail to the SMTP server: check its SMTP settings against --smtp above, and docker compose logs smtp)"
-    except (urllib.error.URLError, OSError) as e:
+    except (urllib.error.URLError, OSError, ValueError) as e:
         ok, why = False, f"{A.supabase}: {e}"
     if ok:
         say("supabase", True, "Supabase accepted the request and is sending the code")
