@@ -190,7 +190,11 @@ if j.get("status") == "success":
     say("api", *watch(mid, t))
 else:
     d = j.get("data") or {}
-    say("api", False, f"{d.get('message') or d.get('code') or j}")
+    hint = ""
+    if (d.get("code") or "") == "UnauthenticatedFromAddress":
+        hint = (f" (the From was '{A.sender}': its domain must be a verified domain of the same mail server as the API key,"
+                " spelled exactly; dashboard → the server → Domains)")
+    say("api", False, f"{d.get('message') or d.get('code') or j}{hint}")
     if (d.get("code") or "") in ("InvalidServerAPIKey", "AccessDenied"):
         say("api", False, "the rest needs a working --api key; stopping")
         sys.exit(1)
