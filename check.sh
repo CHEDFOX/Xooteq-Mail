@@ -50,7 +50,8 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "https://postal.$D/login" || true)
 # The mailboxes and Xooteq Mail, once workspace-setup.sh has run.
 if [ -n "${STALWART_ADMIN_SECRET:-}" ]; then
   echo "Mailboxes (Stalwart) and Xooteq Mail"
-  banner=$(timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/25; head -c 120 <&3' 2>/dev/null || true)
+  # The greeting is one short line, then the server waits for us: read just that line.
+  banner=$(timeout 6 bash -c 'exec 3<>/dev/tcp/127.0.0.1/25; IFS= read -r -t 5 line <&3; printf "%s" "$line"' 2>/dev/null || true)
   case "$banner" in *Stalwart*) pass "port 25 is Stalwart (all incoming mail)";; *) fail "port 25 answers '${banner%%$'\r'*}' (want Stalwart: workspace-setup.sh step 4)";; esac
   for p in 465 993; do nc -z -w 3 127.0.0.1 $p 2>/dev/null && pass "Stalwart listening on $p" || fail "nothing on port $p (docker compose ps stalwart)"; done
   curl -fs -m 5 "http://127.0.0.1:${STALWART_LOCAL_PORT:-8081}/healthz/live" >/dev/null && pass "Stalwart healthy" || fail "Stalwart not healthy (docker compose logs stalwart)"
