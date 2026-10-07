@@ -2,7 +2,7 @@
 # First run of the mail platform on the VPS. Safe to run again: makes what is
 # missing, leaves what is there.
 #
-#   cd ~/tulmi/mail && cp .env.example .env && nano .env && sudo ./setup.sh
+#   cd ~/xooteq-mail && cp .env.example .env && nano .env && sudo ./setup.sh
 #
 # What it does, in order: reads .env, makes /opt/postal, the signing key and the
 # Rails secret, writes postal.yml from the template, copies the compose file,
@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-[ -f .env ] || { echo "mail/.env is missing: cp .env.example .env and fill it in"; exit 1; }
+[ -f .env ] || { echo ".env is missing: cp .env.example .env and fill it in"; exit 1; }
 set -a; . ./.env; set +a
 for v in MAIL_DOMAIN VPS_IP DB_ROOT_PASSWORD DB_PASSWORD ADMIN_EMAIL SYSTEM_FROM; do
   [ -n "${!v:-}" ] || { echo ".env: $v is empty"; exit 1; }

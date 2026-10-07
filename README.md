@@ -25,6 +25,7 @@ xooteq-mail/
   mariadb-init.sql       the grant Postal needs for its per-server databases
   setup.sh               first run: keys, config, database, admin user, DKIM record
   check.sh               proves DNS, PTR, ports and TLS before and after
+  test.py                sends real mails every way the apps do and reports the receiver's answer
   nginx-postal.conf      the dashboard behind the VPS's existing nginx
   certbot-hook.sh        hands renewed certificates to the SMTP server
   .env.example           the few values to fill in
@@ -106,15 +107,20 @@ In the dashboard:
 
 1. **Organization** → *Create*: `XOOTEQ LAB` (one for everything you own).
 2. **Mail server** → *Create*: `Tailzu`, mode *Live*. One per app.
-3. **Domains** → *Add*: `tailzu.space`. Postal shows four records to add at
-   tailzu.space's DNS: a verification TXT, SPF (`v=spf1 include:spf.<MAIL_DOMAIN> ~all`),
-   a DKIM TXT (`postal-xxxx._domainkey`) and the return path CNAME
-   (`psrp.tailzu.space → rp.<MAIL_DOMAIN>`). Add them, click *Check*, all green.
-   Add `_dmarc.tailzu.space` TXT `v=DMARC1; p=quarantine; rua=mailto:dmarc@tailzu.space`.
-4. **Credentials** → *Add*: type **SMTP**, name `supabase`. Postal shows the
-   username and password once.
+3. **Domains** → *Add*: `tailzu.space` (check the spelling: Postal verifies
+   exactly the name typed, and a typo fails every check for good). Postal shows
+   the records to add at tailzu.space's DNS: SPF (`v=spf1 a mx include:spf.<MAIL_DOMAIN> ~all`
+   at `@`, merged into an existing SPF if there is one), a DKIM TXT
+   (`postal-xxxx._domainkey`) and the return path CNAME (`psrp → rp.<MAIL_DOMAIN>`).
+   The MX is only for receiving (see Receiving). Add them, wait ten minutes,
+   click *Check my records are correct*, all green.
+   Add `_dmarc.tailzu.space` TXT `v=DMARC1; p=quarantine; rua=mailto:you@gmail.com`.
+4. **Credentials** → *Add*: type **SMTP**, name `supabase`. Postal shows one
+   **key**: that is the password, and the username can be anything (Postal's
+   SMTP server ignores it). Add a second of type **API**, name `forms`, for the
+   forms service and for `test.py`.
 
-Then in Supabase → Project Settings → Auth → **SMTP**:
+Then in Supabase → Project Settings → Authentication → **SMTP Settings**:
 
 | Field | Value |
 |---|---|
@@ -122,11 +128,33 @@ Then in Supabase → Project Settings → Auth → **SMTP**:
 | Sender name | `Tailzu` |
 | Host | `smtp.<MAIL_DOMAIN>` |
 | Port | `587` |
-| Username | the SMTP credential's username |
-| Password | its password |
+| Username | `tailzu` (anything) |
+| Password | the SMTP credential's key |
 
 Save, request a code from the app, and watch it appear under the Tailzu server's
-**Messages** in the dashboard with its delivery status.
+**Messages** in the dashboard with its delivery status. Supabase's own limit on
+sign-in mails is under Authentication → Rate Limits (30 an hour by default).
+
+### Prove it
+
+`test.py` sends real mails to an inbox every way the apps do, waits for the
+receiver's answer through Postal, and prints it:
+
+```bash
+./test.py --api <API key> --from hello@tailzu.space --to you@gmail.com \
+  --smtp <SMTP key> \
+  --forms tz_8f3a1c2e9b7d4a6f --origin https://tailzu.space \
+  --supabase https://<ref>.supabase.co --anon <anon key>
+```
+
+`--api` is the only required key (the script reads statuses back with it). Each
+further flag adds a path: `--smtp` connects exactly as Supabase does (STARTTLS
+on 587, AUTH PLAIN, the key as the password), `--forms` posts a contact-form
+submission, `--supabase` asks Supabase for a sign-in code for `--to` (an address
+that has an account) and watches it come through. Every line says *ok* with
+the receiver's acceptance (`250 2.0.0 OK ... gsmtp`) or *FAIL* with what went
+wrong and where to look. Then open one of the mails in the inbox → *Show
+original*: SPF, DKIM and DMARC should all say PASS.
 
 Another app is steps 2–4 again with its own name, domain and credentials. An
 app that sends from code uses an **API** credential instead and
@@ -226,6 +254,8 @@ use a mailbox provider for that domain and keep Postal for sending.
 
 ## When a code does not arrive
 
+0. `./test.py --api … --smtp … --supabase … --anon …` (above) says which of the
+   three legs fails: Postal itself, the SMTP login, or Supabase's settings.
 1. Dashboard → Tailzu → Messages: is it there? **Not there**: Supabase could not
    connect. Check the credential and that `./check.sh` shows 587 open.
    **Held**: Postal found a problem with the message (spam score, a domain not
