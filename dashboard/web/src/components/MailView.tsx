@@ -41,20 +41,37 @@ export function MailView({ route, company }: { route: MailRoute; company: Compan
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [tick, setTick] = useState(0);
   const [searchText, setSearchText] = useState(q);
+  // Which of the company's addresses to show mail for ("" = all). Kept while moving
+  // between folders; an address's own folder already is that filter.
+  const [addr, setAddr] = useState("");
+  const showAddrs = company.addresses.length > 1 && folder?.kind !== "address";
+  const activeAddr = showAddrs && company.addresses.some((a) => a.email === addr) ? addr : "";
   const lastCheck = useRef<number | null>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
-  const key = `${company.id}|${box ?? ""}|${q}`;
+  const key = `${company.id}|${box ?? ""}|${q}|${activeAddr}`;
   const keyRef = useRef(key);
   keyRef.current = key;
 
   const filter = useCallback((): Record<string, unknown> | null => {
+    let base: Record<string, unknown> | null;
     if (route.page === "search") {
       const skip = data.boxes.filter((b) => b.role === "trash" || b.role === "junk").map((b) => b.id);
-      return skip.length ? { operator: "AND", conditions: [{ text: q }, { inMailboxOtherThan: skip }] } : { text: q };
-    }
-    return folder ? { inMailbox: folder.id } : null;
-  }, [route.page, q, folder, data.boxes]);
+      base = skip.length ? { operator: "AND", conditions: [{ text: q }, { inMailboxOtherThan: skip }] } : { text: q };
+    } else base = folder ? { inMailbox: folder.id } : null;
+    if (!base || !activeAddr) return base;
+    // Mail for one address. In the Inbox that is its folder (filed by the server from
+    // the envelope, so Bcc counts too), and for the main address everything filed in
+    // no address folder; sent mail is by sender; anywhere else, by To and Cc.
+    const a = company.addresses.find((x) => x.email === activeAddr);
+    const own = folders.addresses.find((f) => f.email === activeAddr);
+    let only: Record<string, unknown> | null;
+    if (box === "sent" || box === "drafts") only = { from: activeAddr };
+    else if (box === "inbox" && a?.isPrimary) only = folders.addresses.length ? { operator: "NOT", conditions: folders.addresses.map((f) => ({ inMailbox: f.id })) } : null;
+    else if (box === "inbox" && own) only = { inMailbox: own.id };
+    else only = { operator: "OR", conditions: [{ to: activeAddr }, { cc: activeAddr }] };
+    return only ? { operator: "AND", conditions: [base, only] } : base;
+  }, [route.page, q, folder, data.boxes, activeAddr, company.addresses, folders, box]);
 
   const load = useCallback(async (mode: "reset" | "refresh" | "more") => {
     const f = filter();
@@ -223,16 +240,22 @@ export function MailView({ route, company }: { route: MailRoute; company: Compan
   });
 
   const labelFor = useCallback((r: ThreadRow) => {
-    if (folder?.kind === "address") return undefined;
+    if (folder?.kind === "address" || activeAddr) return undefined;
     return folders.addresses.find((f) => r.mailboxIds?.[f.id])?.name;
-  }, [folder, folders]);
+  }, [folder, folders, activeAddr]);
 
   const title = route.page === "search" ? `Results for “${q}”` : folder?.name ?? "Mail";
   const empty = route.page === "search"
     ? { title: `Nothing matches “${q}”`, text: "Try fewer words, a name, or an address.", search: true }
     : emptyFor(box ?? "", folder?.email, company);
+  if (activeAddr && route.page === "mail") {
+    empty.title = `Nothing for ${activeAddr.split("@")[0]}@ in ${title}`;
+    empty.text = box === "sent" || box === "drafts" ? `Mail you write from ${activeAddr} shows here.` : `Mail sent to ${activeAddr} shows here.`;
+  }
   const allChecked = rows.length > 0 && rows.every((r) => checked.has(r.threadId));
-  const unreadHere = folder?.unread ?? 0;
+  const addrFolder = (email: string) => folders.addresses.find((f) => f.email === email);
+  // Unread for what is on screen: the folder, or the chosen address's folder in the Inbox.
+  const unreadHere = !activeAddr ? folder?.unread ?? 0 : box === "inbox" ? addrFolder(activeAddr)?.unread ?? 0 : 0;
 
   const header = (
     <header className="list-head">
@@ -275,13 +298,28 @@ export function MailView({ route, company }: { route: MailRoute; company: Compan
           <span className="bar-fill" />
           {route.page === "mail" && unreadHere > 0 && (
             <button className="link-btn" onClick={async () => {
-              const all = await j.threads({ operator: "AND", conditions: [{ inMailbox: folder!.id }, { notKeyword: "$seen" }] }, 0, 500);
+              const all = await j.threads({ operator: "AND", conditions: [filter()!, { notKeyword: "$seen" }] }, 0, 500);
               await markRead(j, all.rows.map((r) => r.threadId), true);
               refreshAll();
               toast({ text: `Marked ${all.rows.length} as read.` });
             }}>Mark all read</button>
           )}
           <IconButton label="Refresh" onClick={refreshAll}><Refresh size={16} /></IconButton>
+        </div>
+      )}
+      {showAddrs && (
+        <div className="addr-filter" role="radiogroup" aria-label="Show mail for">
+          <button type="button" role="radio" aria-checked={!activeAddr} className={cls("addr-chip", !activeAddr && "is-on")} onClick={() => setAddr("")}>All</button>
+          {company.addresses.map((a) => {
+            const n = box === "inbox" ? addrFolder(a.email)?.unread ?? 0 : 0;
+            const on = activeAddr === a.email;
+            return (
+              <button type="button" key={a.email} role="radio" aria-checked={on} title={a.email} className={cls("addr-chip", on && "is-on")}
+                onClick={() => setAddr(on ? "" : a.email)}>
+                {a.local}@{n > 0 && <span className="addr-chip-n">{n}</span>}
+              </button>
+            );
+          })}
         </div>
       )}
     </header>
