@@ -30,6 +30,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from email import policy
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
@@ -208,7 +209,7 @@ if A.smtp:
             s.ehlo()
             s.user, s.password = "test", A.smtp
             s.auth("PLAIN", s.auth_plain)
-            s.sendmail(A.sender, [A.to], msg.as_bytes())
+            s.sendmail(A.sender, [A.to], msg.as_bytes(policy=policy.SMTP))   # CRLF line ends, as SMTP wants
         say("smtp", True, "STARTTLS, AUTH PLAIN and the message were accepted")
         mid = find(last_id, subject_has(f"{TOKEN} via SMTP"))
         if mid:
