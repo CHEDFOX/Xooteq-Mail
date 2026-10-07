@@ -116,9 +116,13 @@ In the dashboard:
    click *Check my records are correct*, all green.
    Add `_dmarc.tailzu.space` TXT `v=DMARC1; p=quarantine; rua=mailto:you@gmail.com`.
 4. **Credentials** → *Add*: type **SMTP**, name `supabase`. Postal shows one
-   **key**: that is the password, and the username can be anything (Postal's
-   SMTP server ignores it). Add a second of type **API**, name `forms`, for the
-   forms service and for `test.py`.
+   **key**: that is the password. The username is the organization and the
+   server as they appear in the dashboard's address bar: on
+   `…/org/xooteq-lab/servers/tailzu/…` it is `xooteq-lab/tailzu`. Supabase logs
+   in with CRAM-MD5, which never sends the key itself, so Postal needs the
+   username to know which server's keys to check; with any other username it
+   answers `535 Denied`. Add a second credential of type **API**, name `forms`,
+   for the forms service and for `test.py`.
 
 Then in Supabase → Project Settings → Authentication → **SMTP Settings**:
 
@@ -128,7 +132,7 @@ Then in Supabase → Project Settings → Authentication → **SMTP Settings**:
 | Sender name | `Tailzu` |
 | Host | `smtp.<MAIL_DOMAIN>` |
 | Port | `587` |
-| Username | `tailzu` (anything) |
+| Username | organization/server from the dashboard's address, e.g. `xooteq-lab/tailzu` |
 | Password | the SMTP credential's key |
 
 Save, request a code from the app, and watch it appear under the Tailzu server's
@@ -149,14 +153,14 @@ or give them as flags, for a script:
 
 ```bash
 ./test.py --api API_KEY --from hello@tailzu.space --to you@gmail.com \
-  --smtp SMTP_KEY \
+  --smtp SMTP_KEY --smtp-user xooteq-lab/tailzu \
   --forms tz_8f3a1c2e9b7d4a6f --origin https://tailzu.space \
   --supabase https://REF.supabase.co --anon ANON_KEY
 ```
 
 The API key is the only required one (the script reads statuses back with it).
-Each further value adds a path: `--smtp` connects exactly as Supabase does (STARTTLS
-on 587, AUTH PLAIN, the key as the password), `--forms` posts a contact-form
+Each further value adds a path: `--smtp` with `--smtp-user` logs in exactly as
+Supabase does (STARTTLS on 587, CRAM-MD5, organization/server and the key), `--forms` posts a contact-form
 submission, `--supabase` asks Supabase for a sign-in code for `--to`, as a first
 sign-in from the app does, and watches it come through. Every line says *ok* with
 the receiver's acceptance (`250 2.0.0 OK ... gsmtp`) or *FAIL* with what went
