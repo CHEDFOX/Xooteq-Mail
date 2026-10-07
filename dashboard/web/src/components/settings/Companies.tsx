@@ -68,10 +68,20 @@ export function NewCompany() {
   const validDomain = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(d);
   const taken = me?.companies.some((c) => c.domain === d);
 
-  const addAlias = (raw: string) => {
+  const [aliasNote, setAliasNote] = useState("");
+  // Adds an address to the list, or says why not (never silently nothing).
+  const addAlias = (raw: string): boolean => {
     const l = raw.trim().toLowerCase().replace(/@.*$/, "");
-    if (!l || l === local || aliases.some((a) => a.local === l) || !/^[a-z0-9][a-z0-9._+-]*$/.test(l)) return;
+    if (!l) return false;
+    if (!/^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?$/.test(l)) {
+      setAliasNote(`"${raw.trim()}" can't be an address. Use letters, digits, dots or dashes, with no spaces (e.g. customer.care).`);
+      return false;
+    }
+    if (l === local) { setAliasNote(`${l}@ is the main address already.`); return false; }
+    if (aliases.some((a) => a.local === l)) { setAliasNote(`${l}@ is already in the list.`); return false; }
     setAliases((a) => [...a, { local: l, label: titled(l) }]);
+    setAliasNote("");
+    return true;
   };
 
   function adopt(u: Unclaimed) {
@@ -130,10 +140,12 @@ export function NewCompany() {
                 </div>
               ))}
               <div className="alias-add">
-                <input value={extra} placeholder="Add an address, e.g. orders" onChange={(e) => setExtra(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addAlias(extra); setExtra(""); } }} />
-                <Button size="sm" type="button" onClick={() => { addAlias(extra); setExtra(""); }} disabled={!extra.trim()}>Add</Button>
+                <input id="new-alias" value={extra} placeholder="Add an address, e.g. orders" aria-label="Another address"
+                  onChange={(e) => { setExtra(e.target.value); setAliasNote(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); if (addAlias(extra)) setExtra(""); } }} />
+                <Button size="sm" type="button" onClick={() => { if (addAlias(extra)) setExtra(""); }} disabled={!extra.trim()}>Add</Button>
               </div>
+              {aliasNote && <div className="alias-note" role="alert">{aliasNote}</div>}
               <div className="alias-suggest">
                 {SUGGESTED.filter((s) => s !== local && !aliases.some((a) => a.local === s)).map((s) => (
                   <button type="button" key={s} className="suggest-chip" onClick={() => addAlias(s)}><Plus size={12} />{s}@</button>
