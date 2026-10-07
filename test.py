@@ -2,15 +2,16 @@
 """Proves the mail platform end to end, the way the apps use it.
 
   ./test.py --api KEY --from hello@tailzu.space --to you@gmail.com
-            [--smtp KEY] [--forms SITEKEY [--origin https://site]]
+            [--smtp KEY --smtp-user ORG/SERVER] [--forms SITEKEY [--origin https://site]]
             [--supabase https://xxx.supabase.co --anon KEY]
 
 Every step sends one real mail to --to, then watches Postal until the receiver
 (Gmail, Outlook, ...) has answered, and prints that answer:
 
   api       what the forms service and apps that send from code use
-  smtp      exactly what Supabase does: STARTTLS on 587, AUTH PLAIN, the
-            credential's key as the password, the username ignored
+  smtp      exactly what Supabase does: STARTTLS on 587, then CRAM-MD5 (the
+            login Supabase picks when offered) with the username
+            organization/server and the credential's key as the password
   forms     a contact-form submission posted to the forms service
   supabase  asks Supabase for a sign-in code for --to, exactly as a first
             sign-in from the app does (an address with no account gets one)
@@ -65,6 +66,7 @@ ap.add_argument("--api", metavar="KEY", help="an API credential of the app's mai
 ap.add_argument("--from", dest="sender", metavar="ADDRESS", help="a sender on a domain verified in that mail server")
 ap.add_argument("--to", metavar="ADDRESS", help="the inbox the test mails go to")
 ap.add_argument("--smtp", metavar="KEY", help="an SMTP credential's key: also send the way Supabase does")
+ap.add_argument("--smtp-user", metavar="ORG/SERVER", help="with --smtp: the username, organization/server as in the dashboard's address (.../org/ORG/servers/SERVER/...)")
 ap.add_argument("--forms", metavar="SITEKEY", help="a site's key from sites.json: also post a form submission")
 ap.add_argument("--origin", metavar="URL", help="with --forms: one of the site's allowed origins, e.g. https://tailzu.space")
 ap.add_argument("--supabase", metavar="URL", help="a Supabase project URL: also request a sign-in code for --to")
@@ -92,6 +94,8 @@ if not (A.api and A.sender and A.to):
     ap.error("--api, --from and --to are needed")
 if A.smtp is None and sys.stdin.isatty():
     A.smtp = ask("optional: SMTP credential key, to test the login Supabase uses", secret=True) or None
+if A.smtp and not A.smtp_user:
+    A.smtp_user = ask("SMTP username, as set in Supabase: organization/server from the dashboard's address bar, e.g. xooteq-lab/tailzu")
 if A.supabase is None and sys.stdin.isatty():
     A.supabase = ask("optional: Supabase project URL, to request a real sign-in code") or None
 if A.supabase and not A.anon:
@@ -205,16 +209,23 @@ if A.smtp:
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = A.sender, A.to, f"{SUBJECT} via SMTP"
     msg["Date"], msg["Message-ID"] = formatdate(localtime=True), make_msgid(domain=A.sender.rsplit("@", 1)[-1])
-    msg.set_content(f"A test from test.py on the mail platform ({TOKEN}). Submitted over SMTP with STARTTLS and AUTH PLAIN, as Supabase does.")
+    msg.set_content(f"A test from test.py on the mail platform ({TOKEN}). Submitted over SMTP with STARTTLS and the login Supabase uses.")
+    mech = "?"
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as s:
             s.ehlo()
             s.starttls(context=ssl.create_default_context())   # verifies the certificate for SMTP_HOST, as Supabase does
             s.ehlo()
-            s.user, s.password = "test", A.smtp
-            s.auth("PLAIN", s.auth_plain)
+            # Supabase's mailer takes CRAM-MD5 whenever the server offers it, and
+            # Postal then finds the server by the username, organization/server.
+            offered = s.esmtp_features.get("auth", "").upper().split()
+            mech = "CRAM-MD5" if "CRAM-MD5" in offered else "PLAIN"
+            s.user, s.password = (A.smtp_user or "test"), A.smtp
+            if mech == "CRAM-MD5" and "/" not in (A.smtp_user or "") and "_" not in (A.smtp_user or ""):
+                raise smtplib.SMTPAuthenticationError(535, f"no organization/server username given (got '{A.smtp_user or ''}')")
+            s.auth(mech, s.auth_cram_md5 if mech == "CRAM-MD5" else s.auth_plain)
             s.sendmail(A.sender, [A.to], msg.as_bytes(policy=policy.SMTP))   # CRLF line ends, as SMTP wants
-        say("smtp", True, "STARTTLS, AUTH PLAIN and the message were accepted")
+        say("smtp", True, f"STARTTLS, AUTH {mech} as '{s.user}' and the message were accepted")
         mid = find(last_id, subject_has(f"{TOKEN} via SMTP"))
         if mid:
             last_id = max(last_id, mid)
@@ -224,7 +235,10 @@ if A.smtp:
     except ssl.SSLError as e:
         say("smtp", False, f"TLS failed for {SMTP_HOST}: {e} (run certbot-hook.sh after certbot; ./check.sh shows the certificate)")
     except smtplib.SMTPAuthenticationError as e:
-        say("smtp", False, f"AUTH refused: {e.smtp_error.decode(errors='replace') if isinstance(e.smtp_error, bytes) else e.smtp_error} (the key of an SMTP credential, not an API one?)")
+        why = e.smtp_error.decode(errors='replace') if isinstance(e.smtp_error, bytes) else e.smtp_error
+        say("smtp", False, f"AUTH {mech} refused: {why}. The username must be organization/server exactly as in the dashboard's address "
+                           f"(.../org/ORG/servers/SERVER/...), and the password an SMTP credential's key of that server; "
+                           f"Supabase needs the same two")
     except smtplib.SMTPException as e:
         say("smtp", False, f"{e}")
     except OSError as e:
@@ -286,7 +300,9 @@ if A.supabase:
         elif e.code == 429:
             why += " (Supabase's rate limit: wait a minute, or raise it under Authentication → Rate Limits)"
         elif e.code >= 500:
-            why += " (Supabase could not hand the mail to the SMTP server: check its SMTP settings against --smtp above, and docker compose logs smtp)"
+            why += (" (Supabase could not hand the mail to the SMTP server. Its SMTP username must be organization/server as in the"
+                    " dashboard's address, e.g. xooteq-lab/tailzu, and the password the SMTP credential's key; --smtp with --smtp-user"
+                    " tries the same login. docker compose logs --since 5m smtp, in /opt/postal, shows Postal's answer)")
     except (urllib.error.URLError, OSError, ValueError) as e:
         ok, why = False, f"{A.supabase}: {e}"
         if "timed out" in str(e).lower():
