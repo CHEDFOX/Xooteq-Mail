@@ -53,10 +53,10 @@ if [ -n "${STALWART_ADMIN_SECRET:-}" ]; then
   banner=$(timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/25; head -c 120 <&3' 2>/dev/null || true)
   case "$banner" in *Stalwart*) pass "port 25 is Stalwart (all incoming mail)";; *) fail "port 25 answers '${banner%%$'\r'*}' (want Stalwart: workspace-setup.sh step 4)";; esac
   for p in 465 993; do nc -z -w 3 127.0.0.1 $p 2>/dev/null && pass "Stalwart listening on $p" || fail "nothing on port $p (docker compose ps stalwart)"; done
-  curl -fs -m 5 http://127.0.0.1:8081/healthz/live >/dev/null && pass "Stalwart healthy" || fail "Stalwart not healthy (docker compose logs stalwart)"
+  curl -fs -m 5 "http://127.0.0.1:${STALWART_LOCAL_PORT:-8081}/healthz/live" >/dev/null && pass "Stalwart healthy" || fail "Stalwart not healthy (docker compose logs stalwart)"
   tls=$(echo | openssl s_client -connect 127.0.0.1:465 -servername "smtp.$D" 2>/dev/null | openssl x509 -noout -issuer 2>/dev/null)
   case "$tls" in *"Let's Encrypt"*) pass "TLS on 465/993 with the certbot certificate";; *) fail "TLS on 465: ${tls:-no answer} (certbot-hook.sh)";; esac
-  curl -fs -m 5 http://127.0.0.1:5200/healthz >/dev/null && pass "dashboard on 127.0.0.1:5200" || fail "dashboard not answering (docker compose logs dashboard)"
+  curl -fs -m 5 "http://127.0.0.1:${DASHBOARD_PORT:-5200}/healthz" >/dev/null && pass "dashboard on 127.0.0.1:${DASHBOARD_PORT:-5200}" || fail "dashboard not answering (docker compose logs dashboard)"
   code=$(curl -s -o /dev/null -w '%{http_code}' "https://$D/" || true)
   [ "$code" = "200" ] && pass "https://$D answers (Xooteq Mail)" || fail "https://$D gave ${code:-nothing} (nginx-dashboard.conf + certbot)"
 fi

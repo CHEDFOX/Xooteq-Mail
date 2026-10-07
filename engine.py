@@ -58,7 +58,7 @@ def set_env(updates):
 
 E = read_env()
 MAIL_DOMAIN = E.get("MAIL_DOMAIN") or sys.exit("MAIL_DOMAIN is not set in .env")
-URL = os.environ.get("STALWART_LOCAL_URL") or E.get("STALWART_LOCAL_URL") or "http://127.0.0.1:8081"
+URL = os.environ.get("STALWART_LOCAL_URL") or E.get("STALWART_LOCAL_URL") or f"http://127.0.0.1:{E.get('STALWART_LOCAL_PORT') or 8081}"
 USING = ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"]
 
 

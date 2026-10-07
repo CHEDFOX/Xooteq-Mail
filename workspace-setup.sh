@@ -26,13 +26,29 @@ add DASHBOARD_SECRET "$(rand 48)"
 add WEBHOOK_SECRET "$(rand 40)"
 add DASHBOARD_URL "https://$MAIL_DOMAIN"
 if ! grep -q '^STALWART_ADMIN_SECRET=.' .env; then add STALWART_RECOVERY_ADMIN "admin:$(rand 24)"; fi
+
+# The two ports on 127.0.0.1 (Stalwart's own API, the dashboard for nginx): the
+# usual ones, or the next free ones if another program on this VPS has them.
+# Chosen once and kept in .env.
+busy() {
+  if command -v ss >/dev/null; then [ -n "$(ss -Hltn "( sport = :$1 )" 2>/dev/null)" ]
+  else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; fi
+}
+free_port() { local p=$1; while busy "$p"; do p=$((p+1)); done; echo "$p"; }
+grep -q '^STALWART_LOCAL_PORT=.' .env || add STALWART_LOCAL_PORT "$(free_port 8081)"
+grep -q '^DASHBOARD_PORT=.' .env || add DASHBOARD_PORT "$(free_port 5200)"
 chmod 600 .env
+set -a; . ./.env; set +a
+STALWART_LOCAL="http://127.0.0.1:$STALWART_LOCAL_PORT"
+echo "ports on 127.0.0.1: Stalwart API $STALWART_LOCAL_PORT, dashboard $DASHBOARD_PORT"
 
 # 2. Files.
 cp docker-compose.yml engine.py certbot-hook.sh "$P/"
 chmod +x "$P/certbot-hook.sh"
 rm -rf "$P/dashboard" && cp -r dashboard "$P/dashboard"
 cp .env "$P/.env" && chmod 600 "$P/.env"
+# nginx's site for the dashboard, filled in (README, Xooteq Mail).
+sed "s/MAIL_DOMAIN/$MAIL_DOMAIN/g; s/127\.0\.0\.1:5200/127.0.0.1:$DASHBOARD_PORT/g" nginx-dashboard.conf > "$P/nginx-xooteq-mail.conf"
 
 # 3. Stalwart's copy of the certificate (certbot-hook.sh keeps it fresh).
 install -d -m 750 -o 2000 -g 2000 "$P/stalwart-tls"
@@ -54,20 +70,20 @@ docker compose up -d stalwart
 
 # 5. First start only: bootstrap, then restart without the recovery login.
 if ! grep -q '^STALWART_ADMIN_SECRET=.' "$REPO/.env"; then
-  ENV_FILE="$REPO/.env" STALWART_LOCAL_URL=http://127.0.0.1:8081 python3 "$P/engine.py" bootstrap
+  ENV_FILE="$REPO/.env" STALWART_LOCAL_URL=$STALWART_LOCAL python3 "$P/engine.py" bootstrap
   cp "$REPO/.env" "$P/.env"
   docker compose up -d --force-recreate stalwart
 fi
 
 # 6. The settings the platform depends on (idempotent).
-ENV_FILE="$REPO/.env" STALWART_LOCAL_URL=http://127.0.0.1:8081 python3 "$P/engine.py" configure
+ENV_FILE="$REPO/.env" STALWART_LOCAL_URL=$STALWART_LOCAL python3 "$P/engine.py" configure
 cp "$REPO/.env" "$P/.env"
 
 # 7. Xooteq Mail.
 docker compose build -q dashboard
 docker compose up -d dashboard
-for i in $(seq 1 30); do curl -fs http://127.0.0.1:5200/healthz >/dev/null && break; sleep 2; done
-curl -fs http://127.0.0.1:5200/healthz >/dev/null || { echo "dashboard not answering (docker compose logs dashboard)"; exit 1; }
+for i in $(seq 1 30); do curl -fs "http://127.0.0.1:$DASHBOARD_PORT/healthz" >/dev/null && break; sleep 2; done
+curl -fs "http://127.0.0.1:$DASHBOARD_PORT/healthz" >/dev/null || { echo "dashboard not answering (docker compose logs dashboard)"; exit 1; }
 
 # 8. The first login: asked for once, kept in the dashboard's database.
 if ! docker compose exec -T dashboard node --disable-warning=ExperimentalWarning server/cli.ts has-owner >/dev/null 2>&1; then
@@ -79,5 +95,8 @@ fi
 echo
 echo "done. Still to do, once (README, Xooteq Mail):"
 echo "  - DNS: A record  ${MAIL_DOMAIN%%.*}  ->  $VPS_IP  at ${MAIL_DOMAIN#*.}   (the dashboard's address)"
-echo "  - nginx + certbot for https://$MAIL_DOMAIN (nginx-dashboard.conf)"
+echo "  - nginx + certbot for https://$MAIL_DOMAIN:"
+echo "      sudo cp $P/nginx-xooteq-mail.conf /etc/nginx/sites-available/xooteq-mail.conf"
+echo "      sudo ln -sf /etc/nginx/sites-available/xooteq-mail.conf /etc/nginx/sites-enabled/"
+echo "      sudo nginx -t && sudo systemctl reload nginx && sudo certbot --nginx -d $MAIL_DOMAIN"
 echo "  - hPanel firewall: accept TCP 465 and 993 (mail apps)"

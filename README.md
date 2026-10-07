@@ -288,8 +288,7 @@ Then, once:
    address). `smtp.mail` and `mx.mail` exist already (step 1).
 2. **nginx + TLS** for the dashboard:
    ```bash
-   sed "s/MAIL_DOMAIN/mail.xooteq.online/" ~/xooteq-mail/nginx-dashboard.conf \
-     | sudo tee /etc/nginx/sites-available/xooteq-mail.conf >/dev/null
+   sudo cp /opt/postal/nginx-xooteq-mail.conf /etc/nginx/sites-available/xooteq-mail.conf
    sudo ln -sf /etc/nginx/sites-available/xooteq-mail.conf /etc/nginx/sites-enabled/
    sudo nginx -t && sudo systemctl reload nginx
    sudo certbot --nginx -d mail.xooteq.online

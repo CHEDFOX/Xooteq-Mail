@@ -17,8 +17,9 @@
 #
 # Ports, public: 25 (incoming mail, Stalwart), 465 (mail apps sending, Stalwart),
 # 993 (mail apps reading, Stalwart), 587 (apps and Supabase sending, Postal).
-# On 127.0.0.1 for nginx: 5000 Postal's admin, 5100 forms, 5200 the dashboard,
-# 8081 Stalwart's own API (engine.py, and its web admin over an SSH tunnel).
+# On 127.0.0.1 for nginx: 5000 Postal's admin, 5100 forms, DASHBOARD_PORT (5200)
+# the dashboard, STALWART_LOCAL_PORT (8081) Stalwart's own API (engine.py, and
+# its web admin over an SSH tunnel). workspace-setup.sh picks free ones.
 
 x-postal: &postal
   image: ${POSTAL_IMAGE:-ghcr.io/postalserver/postal:3.3.4}
@@ -114,7 +115,7 @@ services:
       - "25:25"
       - "465:465"
       - "993:993"
-      - "127.0.0.1:8081:8080"
+      - "127.0.0.1:${STALWART_LOCAL_PORT:-8081}:8080"
     restart: unless-stopped
     logging:
       driver: json-file
@@ -136,7 +137,7 @@ services:
     volumes:
       - dashboard_data:/data
     ports:
-      - "127.0.0.1:5200:5200"
+      - "127.0.0.1:${DASHBOARD_PORT:-5200}:5200"
     depends_on:
       - stalwart
     restart: unless-stopped
