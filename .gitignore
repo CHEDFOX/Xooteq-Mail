@@ -1,2 +1,3 @@
 # Secrets live only on the VPS.
 .env
+__pycache__/
