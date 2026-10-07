@@ -262,9 +262,13 @@ if A.supabase:
     req = urllib.request.Request(f"{A.supabase.rstrip('/')}/auth/v1/otp", data=json.dumps({"email": A.to, "create_user": True}).encode(),
                                  headers={"apikey": A.anon, "content-type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        # Supabase hands the mail to the SMTP server inside this request, so a
+        # slow answer means a slow (or hanging) SMTP connection from its side.
+        with urllib.request.urlopen(req, timeout=120) as r:
             r.read()
         ok, why = True, ""
+        if time.time() - t > 20:
+            print(f"       (Supabase took {time.time() - t:.0f}s to answer: its SMTP connection to the VPS is slow)")
     except urllib.error.HTTPError as e:
         try:
             d = json.load(e)
@@ -280,6 +284,10 @@ if A.supabase:
             why += " (Supabase could not hand the mail to the SMTP server: check its SMTP settings against --smtp above, and docker compose logs smtp)"
     except (urllib.error.URLError, OSError, ValueError) as e:
         ok, why = False, f"{A.supabase}: {e}"
+        if "timed out" in str(e).lower():
+            why = (f"no answer from Supabase in {time.time() - t:.0f}s. It sends the code over SMTP inside that request, so its "
+                   f"connection to {SMTP_HOST}:587 is hanging: a firewall between Supabase and the VPS (hPanel → VPS → Firewall: "
+                   "allow TCP 587 and 25 from any source), or Supabase's SMTP host/port set wrong")
     if ok:
         say("supabase", True, "Supabase accepted the request and is sending the code")
         mine = lambda m: (m.get("details") or {}).get("rcpt_to", "").lower() == A.to.lower() and float((m.get("details") or {}).get("timestamp") or 0) >= t - 5
@@ -294,6 +302,14 @@ if A.supabase:
             say("supabase", False, "accepted by Supabase, but nothing arrived at Postal: its SMTP settings point elsewhere, or the sender address is on a domain this server has not verified")
     else:
         say("supabase", False, why)
+        # Even so, the code may have gone through: look for it before giving up.
+        mine = lambda m: (m.get("details") or {}).get("rcpt_to", "").lower() == A.to.lower() and float((m.get("details") or {}).get("timestamp") or 0) >= t - 5
+        mid = find(last_id, mine, timeout=20)
+        if mid:
+            last_id = max(last_id, mid)
+            print(f"       ...but a mail for {A.to} did reach Postal as message {mid}: {watch(mid, t)[1]}")
+        else:
+            print(f"       and nothing for {A.to} reached Postal (docker compose logs --since 5m smtp, in /opt/postal, shows whether Supabase connected at all)")
 
 n, k = len(results), sum(results)
 print(f"\n{k} of {n} ok")
