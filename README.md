@@ -118,7 +118,7 @@ In the dashboard:
 4. **Credentials** → *Add*: type **SMTP**, name `supabase`. Postal shows one
    **key**: that is the password. The username is the organization and the
    server as they appear in the dashboard's address bar: on
-   `…/org/xooteq-lab/servers/tailzu/…` it is `xooteq-lab/tailzu`. Supabase logs
+   `…/org/xooteq/servers/tailzu/…` it is `xooteq/tailzu`. Supabase logs
    in with CRAM-MD5, which never sends the key itself, so Postal needs the
    username to know which server's keys to check; with any other username it
    answers `535 Denied`. Add a second credential of type **API**, name `forms`,
@@ -132,7 +132,7 @@ Then in Supabase → Project Settings → Authentication → **SMTP Settings**:
 | Sender name | `Tailzu` |
 | Host | `smtp.<MAIL_DOMAIN>` |
 | Port | `587` |
-| Username | organization/server from the dashboard's address, e.g. `xooteq-lab/tailzu` |
+| Username | organization/server from the dashboard's address, e.g. `xooteq/tailzu` |
 | Password | the SMTP credential's key |
 
 Save, request a code from the app, and watch it appear under the Tailzu server's
@@ -153,7 +153,7 @@ or give them as flags, for a script:
 
 ```bash
 ./test.py --api API_KEY --from hello@tailzu.space --to you@gmail.com \
-  --smtp SMTP_KEY --smtp-user xooteq-lab/tailzu \
+  --smtp SMTP_KEY --smtp-user xooteq/tailzu \
   --forms tz_8f3a1c2e9b7d4a6f --origin https://tailzu.space \
   --supabase https://REF.supabase.co --anon ANON_KEY
 ```

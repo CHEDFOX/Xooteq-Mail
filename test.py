@@ -95,7 +95,7 @@ if not (A.api and A.sender and A.to):
 if A.smtp is None and sys.stdin.isatty():
     A.smtp = ask("optional: SMTP credential key, to test the login Supabase uses", secret=True) or None
 if A.smtp and not A.smtp_user:
-    A.smtp_user = ask("SMTP username, as set in Supabase: organization/server from the dashboard's address bar, e.g. xooteq-lab/tailzu")
+    A.smtp_user = ask("SMTP username, as set in Supabase: organization/server from the dashboard's address bar, e.g. xooteq/tailzu")
 if A.supabase is None and sys.stdin.isatty():
     A.supabase = ask("optional: Supabase project URL, to request a real sign-in code") or None
 if A.supabase and not A.anon:
@@ -301,7 +301,7 @@ if A.supabase:
             why += " (Supabase's rate limit: wait a minute, or raise it under Authentication → Rate Limits)"
         elif e.code >= 500:
             why += (" (Supabase could not hand the mail to the SMTP server. Its SMTP username must be organization/server as in the"
-                    " dashboard's address, e.g. xooteq-lab/tailzu, and the password the SMTP credential's key; --smtp with --smtp-user"
+                    " dashboard's address, e.g. xooteq/tailzu, and the password the SMTP credential's key; --smtp with --smtp-user"
                     " tries the same login. docker compose logs --since 5m smtp, in /opt/postal, shows Postal's answer)")
     except (urllib.error.URLError, OSError, ValueError) as e:
         ok, why = False, f"{A.supabase}: {e}"
