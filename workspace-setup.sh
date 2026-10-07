@@ -24,6 +24,7 @@ rand() { openssl rand -base64 48 | tr -d '/+=\n' | cut -c1-"$1"; }
 add() { grep -q "^$1=." .env || { sed -i "/^$1=/d" .env; echo "$1=$2" >> .env; echo "made $1"; }; }
 add DASHBOARD_SECRET "$(rand 48)"
 add WEBHOOK_SECRET "$(rand 40)"
+add POSTAL_BRIDGE_SECRET "$(rand 40)"
 add DASHBOARD_URL "https://$MAIL_DOMAIN"
 if ! grep -q '^STALWART_ADMIN_SECRET=.' .env; then add STALWART_RECOVERY_ADMIN "admin:$(rand 24)"; fi
 
@@ -46,6 +47,7 @@ echo "ports on 127.0.0.1: Stalwart API $STALWART_LOCAL_PORT, dashboard $DASHBOAR
 cp docker-compose.yml engine.py certbot-hook.sh "$P/"
 chmod +x "$P/certbot-hook.sh"
 rm -rf "$P/dashboard" && cp -r dashboard "$P/dashboard"
+rm -rf "$P/postal-bridge" && cp -r postal-bridge "$P/postal-bridge"
 cp .env "$P/.env" && chmod 600 "$P/.env"
 # nginx's site for the dashboard, filled in (README, Xooteq Mail).
 sed "s/MAIL_DOMAIN/$MAIL_DOMAIN/g; s/127\.0\.0\.1:5200/127.0.0.1:$DASHBOARD_PORT/g" nginx-dashboard.conf > "$P/nginx-xooteq-mail.conf"
@@ -79,13 +81,16 @@ fi
 ENV_FILE="$REPO/.env" STALWART_LOCAL_URL=$STALWART_LOCAL python3 "$P/engine.py" configure
 cp "$REPO/.env" "$P/.env"
 
-# 7. Xooteq Mail.
+# 7. Postal's side of the dashboard (Settings > Sending), restarted for new code.
+docker compose up -d --force-recreate postal-bridge
+
+# 8. Xooteq Mail.
 docker compose build -q dashboard
 docker compose up -d dashboard
 for i in $(seq 1 30); do curl -fs "http://127.0.0.1:$DASHBOARD_PORT/healthz" >/dev/null && break; sleep 2; done
 curl -fs "http://127.0.0.1:$DASHBOARD_PORT/healthz" >/dev/null || { echo "dashboard not answering (docker compose logs dashboard)"; exit 1; }
 
-# 8. The first login: asked for once, kept in the dashboard's database.
+# 9. The first login: asked for once, kept in the dashboard's database.
 if ! docker compose exec -T dashboard node --disable-warning=ExperimentalWarning server/cli.ts has-owner >/dev/null 2>&1; then
   echo
   echo "== your Xooteq Mail login =="

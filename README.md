@@ -29,7 +29,8 @@ xooteq-mail/
   nginx-postal.conf      the dashboard behind the VPS's existing nginx
   certbot-hook.sh        hands renewed certificates to the SMTP server
   .env.example           the few values to fill in
-  dashboard/             Xooteq Mail: the inbox, companies, rules, AI replies
+  dashboard/             Xooteq Mail: the inbox, companies, rules, AI replies, sending
+  postal-bridge/         lets the dashboard run Postal (apps, keys, domains, message log)
   engine.py              sets up and configures Stalwart (the mailboxes)
   workspace-setup.sh     installs or updates Stalwart and Xooteq Mail
   nginx-dashboard.conf   Xooteq Mail behind the VPS's nginx
@@ -355,6 +356,31 @@ it must keep, and the sign-off. Then, per address under **Addresses**:
 Settings → **AI activity** lists every message the AI looked at, what it did and
 why. Plain **auto-replies** (an out-of-office, "we got your message") are set per
 address too, and need no AI.
+
+### Sending: your apps, in the same dashboard
+
+Settings → **Sending** runs Postal from Xooteq Mail, so its own admin is rarely
+needed. One **app** per thing that sends (Tailzu's sign-in codes, a site's
+contact form), each with:
+
+- **Overview**: sent, bounced and held in the last 24 hours, the last 14 days,
+  and the exact settings to paste into Supabase (SMTP) or code (HTTP API), with a
+  **Send a test**.
+- **Messages**: everything it sent or received, searchable by address and status;
+  open one to see each delivery attempt and the receiver's answer, and **Send
+  again** or **Release** a held one.
+- **Domains**: the domains it may send from, each with its own DKIM key and the
+  records to add (SPF, DKIM, return path), checked live.
+- **Keys**: one SMTP or API key per thing that uses it; show, copy, **hold** (its
+  mail waits under Held) or delete each alone.
+- **Blocked**: addresses that hard-bounced and are not sent to for 30 days;
+  remove one to try again now.
+- **Settings**: rename, Live or Development (logged, never delivered), delete.
+
+It works through `postal-bridge`, a small service in Postal's own image that the
+setup starts; changes are made by Postal's own code, exactly as its admin makes
+them. Rare things (IP pools, webhooks, routes, Postal users) stay in Postal's
+admin at `https://postal.mail.xooteq.online`.
 
 ### Rules
 

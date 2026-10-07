@@ -58,6 +58,13 @@ if [ -n "${STALWART_ADMIN_SECRET:-}" ]; then
   tls=$(echo | openssl s_client -connect 127.0.0.1:465 -servername "smtp.$D" 2>/dev/null | openssl x509 -noout -issuer 2>/dev/null)
   case "$tls" in *"Let's Encrypt"*) pass "TLS on 465/993 with the certbot certificate";; *) fail "TLS on 465: ${tls:-no answer} (certbot-hook.sh)";; esac
   curl -fs -m 5 "http://127.0.0.1:${DASHBOARD_PORT:-5200}/healthz" >/dev/null && pass "dashboard on 127.0.0.1:${DASHBOARD_PORT:-5200}" || fail "dashboard not answering (docker compose logs dashboard)"
+  if [ -n "${POSTAL_BRIDGE_SECRET:-}" ]; then
+    if (cd /opt/postal 2>/dev/null && docker compose exec -T dashboard wget -qO- --header "x-bridge-key: $POSTAL_BRIDGE_SECRET" http://postal-bridge:5010/health 2>/dev/null) | grep -q '"ok":true'; then
+      pass "Sending (postal-bridge) answers the dashboard"
+    else
+      fail "Sending not connected (docker compose logs postal-bridge)"
+    fi
+  fi
   code=$(curl -s -o /dev/null -w '%{http_code}' "https://$D/" || true)
   [ "$code" = "200" ] && pass "https://$D answers (Xooteq Mail)" || fail "https://$D gave ${code:-nothing} (nginx-dashboard.conf + certbot)"
 fi

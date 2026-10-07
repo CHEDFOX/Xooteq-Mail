@@ -27,6 +27,9 @@ export const config = {
   mailDomain,
   vpsIp: env("VPS_IP", ""),
   dataDir: env("DATA_DIR", path.resolve("data")),
+  /** postal-bridge, Postal's side of the dashboard (Sending), on the private network. */
+  postalBridgeUrl: env("POSTAL_BRIDGE_URL", "http://postal-bridge:5010").replace(/\/+$/, ""),
+  postalBridgeSecret: env("POSTAL_BRIDGE_SECRET", ""),
   /** Built web app (vite build); absent in development, where vite serves it. */
   webDir: env("WEB_DIR", path.resolve("web/dist")),
   /** Cookies get Secure unless explicitly running on plain http (development). */

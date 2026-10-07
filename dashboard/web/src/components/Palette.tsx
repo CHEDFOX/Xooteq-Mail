@@ -5,7 +5,7 @@ import { useMailData } from "../mailData";
 import { go, type Route } from "../router";
 import { useApp } from "../store";
 import { cls } from "../util";
-import { Activity, At, Building, Globe, Inbox, Key, Moon, Pencil, Plus, Rules, Search, Settings, Sparkle, Sun, User } from "../icons";
+import { Activity, At, Building, Globe, Inbox, Key, Moon, Pencil, Plus, Rules, Search, Send, Settings, Sparkle, Sun, User } from "../icons";
 
 type Cmd = { id: string; label: string; hint?: string; group: string; icon: ReactNode; run: () => void; keywords?: string };
 
@@ -58,6 +58,7 @@ export function Palette({ route }: { route: Route }) {
     });
     out.push(
       { id: "new", label: "Add a company", group: "Settings", icon: <Plus size={16} />, run: run(() => go("/settings/new")), keywords: "domain new mailbox" },
+      { id: "sending", label: "Sending: apps, SMTP and API keys", group: "Settings", icon: <Send size={16} />, run: run(() => go("/settings/sending")), keywords: "postal smtp api supabase message log bounces" },
       { id: "ai", label: "AI providers and keys", group: "Settings", icon: <Key size={16} />, run: run(() => go("/settings/ai")), keywords: "openai anthropic claude gemini key model" },
       { id: "activity", label: "AI activity", group: "Settings", icon: <Activity size={16} />, run: run(() => go("/settings/activity")), keywords: "log runs history" },
       { id: "account", label: "Your account", group: "Settings", icon: <User size={16} />, run: run(() => go("/settings/account")), keywords: "password sign out" },

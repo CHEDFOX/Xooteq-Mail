@@ -61,3 +61,34 @@ export type Email = {
 };
 
 export type Identity = { id: string; name: string; email: string; replyTo?: EmailAddress[] | null; textSignature?: string; htmlSignature?: string };
+
+// ---- Sending (Postal, through postal-bridge) ----
+export type SendStats = {
+  sent24h?: number; bounced24h?: number; received24h?: number; held?: number; queued?: number; bounceRate?: number;
+  daily?: { day: string; sent: number; bounced: number }[]; statsError?: string;
+};
+export type SendRecordStatus = { status: string | null; error: string | null };
+export type SendDomain = {
+  id: string; name: string; verified: boolean; checkedAt: string | null;
+  status: { spf: SendRecordStatus; dkim: SendRecordStatus; returnPath: SendRecordStatus; mx: SendRecordStatus };
+  records: { kind: string; type: string; host: string; value: string; priority?: number; required: boolean; why: string }[];
+};
+export type SendKey = { id: number; name: string; type: "SMTP" | "API" | "SMTP-IP"; key: string; hold: boolean; lastUsedAt: string | null; createdAt: string | null };
+export type SendApp = SendStats & {
+  id: string; name: string; mode: "Live" | "Development"; suspended: boolean; smtpUsername: string; domains: number; credentials: number;
+  domainList?: SendDomain[]; credentialList?: SendKey[];
+};
+export type SendOverview = {
+  organization: { name: string; permalink: string };
+  smtp: { host: string; port: number; security: string };
+  api: { url: string; header: string };
+  dns: { spfInclude: string; returnPath: string };
+  servers: SendApp[];
+};
+export type SendMessage = {
+  id: number; token: string; scope: string; to: string; from: string; subject: string | null; status: string; held: boolean; spam: boolean;
+  bounce: boolean; tag: string | null; timestamp: string | null; lastDeliveryAttempt: string | null;
+  deliveries?: { status: string; details: string | null; output: string | null; sentWithSsl: boolean; time: number | null; timestamp: string | null }[];
+  raw?: boolean; body?: string | null; messageId?: string | null; queued?: boolean;
+};
+export type SendPage<T> = { page: number; totalPages: number; total: number } & T;

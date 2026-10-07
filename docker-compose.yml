@@ -73,6 +73,19 @@ services:
     <<: *postal
     command: postal worker
 
+  # Postal's side of Xooteq Mail (Settings > Sending): a small JSON API in Postal's
+  # own image, so apps, keys, domains and the message log are run from the
+  # dashboard through Postal's own code. Private network only; needs
+  # POSTAL_BRIDGE_SECRET (postal-bridge/bridge.rb).
+  postal-bridge:
+    <<: *postal
+    command: ["bundle", "exec", "ruby", "/bridge/bridge.rb"]
+    environment:
+      POSTAL_BRIDGE_SECRET: ${POSTAL_BRIDGE_SECRET:-}
+    volumes:
+      - /opt/postal/config:/config
+      - /opt/postal/postal-bridge:/bridge:ro
+
   # One-off commands only: `docker compose run --rm runner postal <command>`.
   runner:
     <<: *postal
@@ -133,6 +146,8 @@ services:
       DASHBOARD_URL: ${DASHBOARD_URL:-}
       MAIL_DOMAIN: ${MAIL_DOMAIN}
       VPS_IP: ${VPS_IP}
+      POSTAL_BRIDGE_URL: http://postal-bridge:5010
+      POSTAL_BRIDGE_SECRET: ${POSTAL_BRIDGE_SECRET:-}
       DATA_DIR: /data
     volumes:
       - dashboard_data:/data

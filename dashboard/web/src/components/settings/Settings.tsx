@@ -6,11 +6,12 @@ import { go, href, onNav, type Route } from "../../router";
 import { useApp } from "../../store";
 import type { AiRun } from "../../types";
 import { cls, relative } from "../../util";
-import { Activity, Building, ChevronLeft, Key, Plus, Sparkle, User } from "../../icons";
+import { Activity, Building, ChevronLeft, Key, Plus, Send, Sparkle, User } from "../../icons";
 import { Button, Card, Empty, Field, Input, Pill, Spinner } from "../../ui";
 import { Companies, NewCompany } from "./Companies";
 import { CompanySettings } from "./Company";
 import { Providers } from "./Ai";
+import { SendingApp, SendingApps } from "./Sending";
 
 type SettingsRoute = Extract<Route, { page: "settings" }>;
 
@@ -30,6 +31,8 @@ export function Settings({ route }: { route: SettingsRoute }) {
           s === "company" && route.cid === c.id, <span className="set-dot" style={{ background: c.color }} />))}
         {link({ page: "settings", section: "new" }, "Add a company", s === "new", <Plus size={16} />)}
         {link({ page: "settings", section: "companies" }, "All companies", s === "companies", <Building size={16} />)}
+        <div className="set-group">Sending</div>
+        {link({ page: "settings", section: "sending" }, "Apps, SMTP and API", s === "sending", <Send size={16} />)}
         <div className="set-group">Automation</div>
         {link({ page: "settings", section: "ai" }, "AI providers", s === "ai", <Key size={16} />)}
         {link({ page: "settings", section: "activity" }, "AI activity", s === "activity", <Activity size={16} />)}
@@ -43,6 +46,8 @@ export function Settings({ route }: { route: SettingsRoute }) {
         {s === "companies" ? <Companies />
           : s === "new" ? <NewCompany />
           : s === "company" && route.cid ? <CompanySettings key={route.cid} cid={route.cid} tab={route.tab ?? "addresses"} />
+          : s === "sending" && route.cid ? <SendingApp key={route.cid} id={route.cid} tab={route.tab ?? "overview"} />
+          : s === "sending" ? <SendingApps />
           : s === "ai" ? <Providers />
           : s === "activity" ? <ActivityLog />
           : s === "account" ? <Account />

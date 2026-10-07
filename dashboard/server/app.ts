@@ -8,6 +8,8 @@ import type { Owner } from "./auth.ts";
 import { InputError } from "./companies.ts";
 import { StalwartError } from "./stalwart.ts";
 import { AiError } from "./ai/providers.ts";
+import { PostalError } from "./postal.ts";
+import { sendingRoutes } from "./routes/sending.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { mailRoutes } from "./routes/mail.ts";
 import { adminRoutes } from "./routes/admin.ts";
@@ -74,6 +76,10 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
       reply.code(err instanceof AiError && err.status && err.status >= 500 ? 502 : 400).send({ error: err.message });
       return;
     }
+    if (err instanceof PostalError) {
+      reply.code(err.status >= 500 ? 502 : err.status === 401 ? 502 : err.status).send({ error: err.message });
+      return;
+    }
     if (err instanceof StalwartError) {
       req.log.warn({ detail: err.detail }, `stalwart: ${err.message}`);
       reply.code(err.status === 401 ? 502 : err.status && err.status >= 400 && err.status < 500 ? 400 : 502).send({ error: err.message });
@@ -95,6 +101,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(adminRoutes);
   await app.register(aiRoutes);
   await app.register(hookRoutes);
+  await app.register(sendingRoutes);
 
   // The web app: hashed assets cached for a year, index.html never.
   const web = config.webDir;
