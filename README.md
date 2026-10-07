@@ -138,17 +138,24 @@ sign-in mails is under Authentication → Rate Limits (30 an hour by default).
 ### Prove it
 
 `test.py` sends real mails to an inbox every way the apps do, waits for the
-receiver's answer through Postal, and prints it:
+receiver's answer through Postal, and prints it. Run it bare and it asks for
+each value (pasted keys are not echoed; Enter skips an optional one):
 
 ```bash
-./test.py --api <API key> --from hello@tailzu.space --to you@gmail.com \
-  --smtp <SMTP key> \
-  --forms tz_8f3a1c2e9b7d4a6f --origin https://tailzu.space \
-  --supabase https://<ref>.supabase.co --anon <anon key>
+./test.py
 ```
 
-`--api` is the only required key (the script reads statuses back with it). Each
-further flag adds a path: `--smtp` connects exactly as Supabase does (STARTTLS
+or give them as flags, for a script:
+
+```bash
+./test.py --api API_KEY --from hello@tailzu.space --to you@gmail.com \
+  --smtp SMTP_KEY \
+  --forms tz_8f3a1c2e9b7d4a6f --origin https://tailzu.space \
+  --supabase https://REF.supabase.co --anon ANON_KEY
+```
+
+The API key is the only required one (the script reads statuses back with it).
+Each further value adds a path: `--smtp` connects exactly as Supabase does (STARTTLS
 on 587, AUTH PLAIN, the key as the password), `--forms` posts a contact-form
 submission, `--supabase` asks Supabase for a sign-in code for `--to` (an address
 that has an account) and watches it come through. Every line says *ok* with

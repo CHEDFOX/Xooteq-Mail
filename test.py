@@ -20,6 +20,7 @@ status back. Needs python3 and the platform's .env beside this file (for the
 hostnames) and nothing else. Exit code 0 when every step passed.
 """
 import argparse
+import getpass
 import json
 import os
 import smtplib
@@ -57,20 +58,45 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT") or 587)
 # forms.<company domain>: with MAIL_DOMAIN=mail.xooteq.online that is forms.xooteq.online.
 FORMS = os.environ.get("FORMS_URL") or "https://" + (E.get("FORMS_HOST") or "forms." + (MAIL_DOMAIN.split(".", 1)[1] if MAIL_DOMAIN.count(".") >= 2 else MAIL_DOMAIN))
 
-ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-ap.add_argument("--api", required=True, metavar="KEY", help="an API credential of the app's mail server (dashboard → Credentials)")
-ap.add_argument("--from", dest="sender", required=True, metavar="ADDRESS", help="a sender on a domain verified in that mail server")
-ap.add_argument("--to", required=True, metavar="ADDRESS", help="the inbox the test mails go to")
+ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+                             epilog="Run it with no flags and it asks for each value; Enter skips an optional one.")
+ap.add_argument("--api", metavar="KEY", help="an API credential of the app's mail server (dashboard → Credentials)")
+ap.add_argument("--from", dest="sender", metavar="ADDRESS", help="a sender on a domain verified in that mail server")
+ap.add_argument("--to", metavar="ADDRESS", help="the inbox the test mails go to")
 ap.add_argument("--smtp", metavar="KEY", help="an SMTP credential's key: also send the way Supabase does")
 ap.add_argument("--forms", metavar="SITEKEY", help="a site's key from sites.json: also post a form submission")
 ap.add_argument("--origin", metavar="URL", help="with --forms: one of the site's allowed origins, e.g. https://tailzu.space")
 ap.add_argument("--supabase", metavar="URL", help="a Supabase project URL: also request a sign-in code for --to")
 ap.add_argument("--anon", metavar="KEY", help="with --supabase: the project's anon (public) key")
 A = ap.parse_args()
+
+
+def ask(label, secret=False):
+    """Asks on the terminal for a value not given as a flag; '' when skipped or not a terminal."""
+    if not sys.stdin.isatty():
+        return ""
+    try:
+        v = (getpass.getpass if secret else input)(f"  {label}: ")
+    except (EOFError, KeyboardInterrupt):
+        print(); sys.exit(1)
+    return v.strip().strip('"').strip("'")
+
+
+if not (A.api and A.sender and A.to):
+    print("Paste each value (a pasted key is not shown). Enter skips an optional one.")
+A.api = A.api or ask("Postal API key, the API row under the mail server's Credentials", secret=True)
+A.sender = A.sender or ask("From address on a domain of that mail server, e.g. hello@tailzu.space")
+A.to = A.to or ask("Send the tests to (your inbox)")
+if not (A.api and A.sender and A.to):
+    ap.error("--api, --from and --to are needed")
+if A.smtp is None and sys.stdin.isatty():
+    A.smtp = ask("optional: SMTP credential key, to test the login Supabase uses", secret=True) or None
+if A.supabase is None and sys.stdin.isatty():
+    A.supabase = ask("optional: Supabase project URL, to request a real sign-in code") or None
 if A.supabase and not A.anon:
-    ap.error("--supabase needs --anon")
+    A.anon = ask("Supabase anon (public) key, Project Settings → API Keys", secret=True) or ap.error("--supabase needs --anon")
 for flag, val in (("--api", A.api), ("--smtp", A.smtp), ("--anon", A.anon), ("--forms", A.forms)):
-    if val and (not val.isascii() or "•" in val or val.startswith("THE_")):
+    if val and (not val.isascii() or "•" in val or val.startswith("THE_") or val.startswith("<")):
         ap.error(f"{flag} is not a real key (a placeholder, or a masked copy with ••••): paste the value itself")
 if A.anon and not A.anon.startswith("eyJ"):
     ap.error("--anon should be the project's anon (public) key, a long string starting with eyJ: Supabase → Project Settings → API Keys")
