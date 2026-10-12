@@ -51,6 +51,11 @@ const migrations: string[] = [
    CREATE INDEX ai_runs_due ON ai_runs(status, send_at);`,
   // The name each address sends as ("Tailzu Support"); empty means the company's name.
   `ALTER TABLE addresses ADD COLUMN display_name TEXT NOT NULL DEFAULT '';`,
+  // Each sending app's own user database (its Users tab): the connection string
+  // sealed like the AI keys, Supabase's auth.users or a mapped table.
+  `CREATE TABLE app_user_sources (
+     app_id TEXT PRIMARY KEY, url_enc TEXT NOT NULL, url_hint TEXT NOT NULL, kind TEXT NOT NULL,
+     mapping TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);`,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");

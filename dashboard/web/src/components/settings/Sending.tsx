@@ -1,6 +1,7 @@
 // Sending: what your apps send through Postal (Supabase codes, contact forms,
 // anything on SMTP or the API). Each app has its keys, sending domains, message
-// log and blocked addresses here, so Postal's own admin is no longer needed.
+// log and blocked addresses here, so Postal's own admin is no longer needed,
+// and its users, read from the app's own database (AppUsers.tsx).
 import { useCallback, useEffect, useState } from "react";
 import { del, get, patch, post } from "../../api";
 import { go, href, onNav } from "../../router";
@@ -10,9 +11,11 @@ import { cls, initials, relative } from "../../util";
 import { Copy, Eye, Key, Plus, Refresh, Send, Trash } from "../../icons";
 import { Button, Card, Empty, Field, Input, Modal, Pill, Segmented, Spinner, Toggle } from "../../ui";
 import { PageHead } from "./Settings";
+import { AppUsers } from "./AppUsers";
 
 const TABS = [
   { id: "overview", label: "Overview" },
+  { id: "users", label: "Users" },
   { id: "messages", label: "Messages" },
   { id: "domains", label: "Domains" },
   { id: "keys", label: "Keys" },
@@ -139,7 +142,8 @@ export function SendingApp({ id, tab }: { id: string; tab: string }) {
           </a>
         ))}
       </nav>
-      {tab === "messages" ? <Messages app={s} />
+      {tab === "users" ? <AppUsers app={s} />
+        : tab === "messages" ? <Messages app={s} />
         : tab === "domains" ? <Domains app={s} onChange={load} />
         : tab === "keys" ? <Keys app={s} onChange={load} />
         : tab === "blocked" ? <Blocked app={s} />

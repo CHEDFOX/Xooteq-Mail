@@ -1126,6 +1126,34 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   .send-row-from { display: none; }
 }
 
+/* An app's Users tab: its own database's users, as a table. */
+.users-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px 14px; }
+.users-search { gap: 8px; color: var(--ink-3); }
+.users-search .input { width: 260px; }
+.user-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 116px 100px; align-items: center; gap: 14px;
+  padding: 9px 16px; border-bottom: 1px solid var(--line-2); font-size: 13.5px;
+}
+.user-row:last-child { border-bottom: 0; }
+.user-row:not(.is-head):hover { background: var(--hover); }
+.user-row.is-head {
+  padding-top: 10px; padding-bottom: 10px; background: var(--panel-2);
+  font-size: 11.5px; font-weight: 640; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3);
+}
+.user-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.user-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-name.is-none, .user-used.is-none { color: var(--ink-3); font-weight: 450; }
+.user-auth { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; min-width: 0; }
+.user-id { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.user-id.is-second { color: var(--ink-3); font-size: 12.5px; }
+.user-created, .user-used { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.user-used { text-align: right; }
+@media (max-width: 720px) {
+  .user-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .user-created { display: none; }
+  .users-search .input { width: 100%; }
+}
+
 .runs { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
 .run { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto 70px; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--line-2); }
 .run:last-child { border-bottom: 0; }

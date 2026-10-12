@@ -37,8 +37,9 @@ export function verifyWebhook(body: Buffer, signature: string | undefined): bool
   return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
-// AI keys: AES-256-GCM under a key derived from DASHBOARD_SECRET. The database
-// alone does not reveal them; the database plus the .env does.
+// AI keys and the apps' database connection strings: AES-256-GCM under a key
+// derived from DASHBOARD_SECRET. The database alone does not reveal them; the
+// database plus the .env does.
 function aesKey(): Buffer {
   return Buffer.from(crypto.hkdfSync("sha256", config.secret, "xooteq-mail", "ai-keys", 32));
 }

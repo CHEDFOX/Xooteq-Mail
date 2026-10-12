@@ -366,6 +366,9 @@ contact form), each with:
 - **Overview**: sent, bounced and held in the last 24 hours, the last 14 days,
   and the exact settings to paste into Supabase (SMTP) or code (HTTP API), with a
   **Send a test**.
+- **Users**: the people who use the app, read from its own database: name, how
+  they sign in (email or phone, and the provider), when the account was made and
+  when it was last used, with totals, search and sorting. See below.
 - **Messages**: everything it sent or received, searchable by address and status;
   open one to see each delivery attempt and the receiver's answer, and **Send
   again** or **Release** a held one.
@@ -381,6 +384,33 @@ It works through `postal-bridge`, a small service in Postal's own image that the
 setup starts; changes are made by Postal's own code, exactly as its admin makes
 them. Rare things (IP pools, webhooks, routes, Postal users) stay in Postal's
 admin at `https://postal.mail.xooteq.online`.
+
+#### Users: connecting an app's database
+
+An app's **Users** tab takes a Postgres connection string once. For a Supabase
+project (Tailzu): the project's **Connect** button → **Session pooler** (the
+direct host is IPv6-only, which the VPS may not reach), with the database
+password filled in. Xooteq recognises Supabase and reads `auth.users`: the name
+from the profile's metadata, email or phone, the provider, created, and last used
+(the later of the last sign-in and the last session refresh). Deleted accounts
+are left out. Any other Postgres works too: pick the table, and map which column
+is the name, email, phone, account created and last used (guessed from the
+column names; dates may be timestamps or epoch seconds/ms).
+
+Xooteq only reads: every query runs in a `READ ONLY` transaction with a 15-second
+limit. The connection string is stored encrypted (like the AI keys) and never
+sent back to the page; deleting the app forgets it. A login that can only read is
+still best:
+
+```sql
+create role xooteq_reader login password '…';
+grant usage on schema public to xooteq_reader;
+grant select on public.users to xooteq_reader;   -- your users table
+```
+
+`sslmode` is read the way `psql` reads it: `require` (the default for a remote
+host) encrypts without verifying the certificate, `verify-full` verifies it,
+`disable` turns SSL off.
 
 ### Rules
 
@@ -411,6 +441,10 @@ cd dashboard && npm install
 npm run dev          # the server, on :5200 (needs a Stalwart; see .env names in server/config.ts)
 npm run dev:web      # the web app with hot reload, on :5173
 npm test             # unit tests
+# the Users tab against a real Postgres (two databases from test/users-fixture.sql):
+#   createdb sb && createdb plain
+#   psql -d sb -v which=sb -f test/users-fixture.sql && psql -d plain -v which=plain -f test/users-fixture.sql
+#   XM_TEST_PG=postgresql://postgres@localhost:5432/postgres npm test
 npm run typecheck
 XM_EMAIL=… XM_PASSWORD=… python3 test/e2e.py   # end to end against a local Stalwart
 ```

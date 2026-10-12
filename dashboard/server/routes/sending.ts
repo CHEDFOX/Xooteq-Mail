@@ -3,6 +3,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { requireOwner } from "../auth.ts";
 import { bridge } from "../postal.ts";
+import { disconnect } from "../appUsers.ts";
 
 const ALLOWED: [string, RegExp][] = [
   ["GET", /^\/overview$/],
@@ -35,7 +36,11 @@ export async function sendingRoutes(app: FastifyInstance) {
       e.statusCode = 404;
       throw e;
     }
-    return bridge(req.method, path + url.search, ["GET", "DELETE"].includes(req.method) ? undefined : req.body ?? {});
+    const out = await bridge(req.method, path + url.search, ["GET", "DELETE"].includes(req.method) ? undefined : req.body ?? {});
+    // A deleted app's user database connection goes with it.
+    const gone = req.method === "DELETE" && /^\/servers\/([a-z0-9-]+)$/.exec(path);
+    if (gone) disconnect(gone[1]!);
+    return out;
   };
   for (const method of ["GET", "POST", "PATCH", "DELETE"] as const) {
     app.route({ method, url: "/api/sending", handler: pass });
