@@ -4,7 +4,8 @@
 --   psql -d plain -f test/users-fixture.sql -v which=plain
 -- "sb" is shaped like a Supabase project's auth schema (120 users: one deleted,
 -- one anonymous, every fifth phone-only, one with a session refreshed an hour
--- ago) with a login, reader, that may read only some columns of auth.users.
+-- ago), a public.profiles with the names and gender the app collected, and a
+-- login, reader, that may read only some columns of auth.users (and no profiles).
 -- "plain" is an app's own members table, dates in epoch milliseconds.
 \if :{?which}
 \else
@@ -23,7 +24,9 @@ create table auth.users (
 create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id),
   created_at timestamptz, updated_at timestamptz, refreshed_at timestamp without time zone, user_agent text);
 create table storage.objects (id uuid, name text, owner uuid);
-create table public.profiles (id uuid primary key, display_name text, avatar_url text, created_at timestamptz);
+-- Tailzu's own: the name and gender the app asks for, keyed by user_id.
+create table public.profiles (user_id uuid primary key references auth.users (id) on delete cascade,
+  language text not null default 'auto', full_name text, gender text, created_at timestamptz not null default now());
 insert into auth.users (email, phone, created_at, last_sign_in_at, raw_app_meta_data, raw_user_meta_data, deleted_at, is_anonymous)
 select
   case when i % 5 = 0 then null else 'user' || i || '@example.com' end,
@@ -35,6 +38,13 @@ select
   case when i = 13 then now() else null end,
   i = 17
 from generate_series(1, 120) i;
+-- Every account has a row (Tailzu's trigger makes one); a few were filled in.
+-- user1's app name beats the one Google sent; user4 sent none; user8's is blank.
+insert into public.profiles (user_id, full_name, gender)
+select u.id,
+  case u.email when 'user1@example.com' then 'Asha Rao' when 'user4@example.com' then 'App Name 4' when 'user8@example.com' then '   ' end,
+  case u.email when 'user1@example.com' then 'female' when 'user4@example.com' then 'female' when 'user3@example.com' then 'male' end
+from auth.users u;
 insert into auth.sessions (user_id, created_at, updated_at, refreshed_at)
 select id, now() - interval '2 days', now() - interval '2 days', (now() - interval '1 hour')::timestamp from auth.users where email = 'user2@example.com';
 create role reader login;

@@ -1,5 +1,6 @@
 // The people who use an app: read from the app's own Postgres database (a
-// Supabase project's auth.users, or any table with a column mapping) and shown
+// Supabase project's auth.users with its public.profiles, or any table with a
+// column mapping) and shown
 // under the app's Users tab. Xooteq only ever reads: every query runs inside a
 // READ ONLY transaction with a statement timeout. The connection string is
 // sealed at rest like the AI keys (crypto.ts), and never sent back to the page.
@@ -22,6 +23,7 @@ export interface Mapping {
   name?: string;
   email?: string;
   phone?: string;
+  gender?: string;
   created?: string;
   lastUsed?: string;
 }
@@ -29,6 +31,7 @@ export type Kind = "supabase" | "table";
 
 export interface AppUser {
   name: string | null;
+  gender: string | null;
   email: string | null;
   phone: string | null;
   /** How they sign in, where the database says (Supabase: email, phone, google…). */
@@ -162,6 +165,7 @@ export function guessMapping(schema: string, table: string, cols: string[]): Map
     name: pick(cols, /^(full_?name|display_?name)$/i, /^name$/i, /^(user_?name|username)$/i, /^first_?name$/i),
     email: pick(cols, /^e?-?mail$/i, /^email_?address$/i, /email/i),
     phone: pick(cols, /^phone(_?number)?$/i, /^mobile(_?number)?$/i, /phone|mobile/i),
+    gender: pick(cols, /^(gender|sex)$/i),
     created: pick(cols, /^created_?at$/i, /^(signed_?up|joined|registered|inserted)_?at$/i, /^(created|date_?joined|created_?on)$/i),
     lastUsed: pick(cols, /^last_?(seen|active|used|activity)(_?at)?$/i, /^last_?(sign_?in|login)(_?at)?$/i, /^updated_?at$/i),
   };
@@ -179,10 +183,41 @@ async function supabaseColumns(c: pg.PoolClient): Promise<{ users: Set<string>; 
 
 const supabaseUsable = (cols: Set<string>) => cols.has("id") && cols.has("created_at") && (cols.has("email") || cols.has("phone"));
 
+/**
+ * A Supabase project's own profiles table, joined to auth.users: the name and
+ * gender the APP asked for. Google and Apple often send no name (Apple sends it
+ * once, if at all), so the one the person typed in the app comes first and the
+ * provider's fills in. Keyed by user_id (Tailzu's), or by id (Supabase's own
+ * starter). Only the columns this login may read are used.
+ */
+interface Profile { key: string; keyIsUuid: boolean; cols: string[]; name: string | null; gender: string | null }
+
+async function supabaseProfile(c: pg.PoolClient): Promise<Profile | null> {
+  const r = await c.query<{ column_name: string; data_type: string }>(
+    `select column_name, data_type from information_schema.columns where table_schema = 'public' and table_name = 'profiles'`);
+  const types = new Map(r.rows.map((x) => [x.column_name, x.data_type]));
+  const key = types.has("user_id") ? "user_id" : types.has("id") ? "id" : null;
+  if (!key) return null;
+  const all = [...types.keys()].filter((k) => k !== key);
+  const full = pick(all, /^(full_?name|display_?name)$/i, /^name$/i, /^(user_?name|username)$/i);
+  const first = full ? undefined : pick(all, /^first_?name$/i);
+  const last = first ? pick(all, /^last_?name$/i) : undefined;
+  const gender = pick(all, /^(gender|sex)$/i);
+  const col = (k: string) => `nullif(btrim(p.${ident(k)}::text), '')`;
+  const name = full ? col(full) : first ? `nullif(concat_ws(' ', ${col(first)}, ${last ? col(last) : "null"}), '')` : null;
+  if (!name && !gender) return null;
+  return {
+    key, keyIsUuid: types.get(key) === "uuid",
+    cols: [full, first, last, gender].filter((x): x is string => !!x),
+    name, gender: gender ? col(gender) : null,
+  };
+}
+
 /** What a connection can read: Supabase's users, and the app's own tables. */
-export async function inspect(url: string): Promise<{ hint: string; supabase: boolean; tables: TableInfo[] }> {
+export async function inspect(url: string): Promise<{ hint: string; supabase: boolean; profile: { name: boolean; gender: boolean } | null; tables: TableInfo[] }> {
   return withUrl(url, (pool) => readOnly(pool, async (c) => {
     const sb = await supabaseColumns(c);
+    const prof = supabaseUsable(sb.users) ? await supabaseProfile(c) : null;
     const r = await c.query<{ table_schema: string; table_name: string; column_name: string; data_type: string }>(
       `select c.table_schema, c.table_name, c.column_name, c.data_type
          from information_schema.columns c
@@ -206,7 +241,7 @@ export async function inspect(url: string): Promise<{ hint: string; supabase: bo
     // The likeliest user tables first: users, profiles, accounts…, then the rest.
     const likely = (t: TableInfo) => /^(users?|profiles?|accounts?|customers?|members?|app_users?)$/i.test(t.table) ? 0 : t.guess.email || t.guess.phone ? 1 : 2;
     tables.sort((a, b) => likely(a) - likely(b));
-    return { hint: hintOf(url), supabase: supabaseUsable(sb.users), tables };
+    return { hint: hintOf(url), supabase: supabaseUsable(sb.users), profile: prof && { name: !!prof.name, gender: !!prof.gender }, tables };
   }));
 }
 
@@ -221,8 +256,9 @@ function asTime(col: string, type: string): string {
   return `nullif(${col}::text, '')::timestamptz`;
 }
 
-/** The SELECT every list and count reads from: name, email, phone, provider, created_at, last_used. */
-async function baseQuery(c: pg.PoolClient, kind: Kind, map: Mapping | null): Promise<string> {
+/** The SELECT every list and count reads from (name, gender, email, phone,
+ *  provider, created_at, last_used), and whether it has a gender to show. */
+async function baseQuery(c: pg.PoolClient, kind: Kind, map: Mapping | null): Promise<{ sql: string; gender: boolean }> {
   if (kind === "supabase") {
     const { users: u, sessions: s } = await supabaseColumns(c);
     if (!supabaseUsable(u)) throw new UsersError("This login can't read auth.users any more.", 502);
@@ -239,15 +275,24 @@ async function baseQuery(c: pg.PoolClient, kind: Kind, map: Mapping | null): Pro
       ? `max(${s.has("refreshed_at") && s.has("updated_at") ? "coalesce(refreshed_at, updated_at)" : s.has("refreshed_at") ? "refreshed_at" : "updated_at"})`
       : null;
     const lastSignIn = u.has("last_sign_in_at") ? "u.last_sign_in_at" : "null::timestamptz";
-    return `select ${meta}::text as name,
+    const prof = await supabaseProfile(c);
+    const name = prof?.name ? (meta === "null" ? prof.name : `coalesce(${prof.name}, ${meta})`) : meta;
+    // At most one profile per user, whatever the table's keys say.
+    const join = prof
+      ? `left join lateral (select ${prof.cols.map(ident).join(", ")} from public.profiles pp
+           where pp.${ident(prof.key)}${prof.keyIsUuid ? "" : "::text"} = u.id${prof.keyIsUuid ? "" : "::text"} limit 1) p on true`
+      : "";
+    return { gender: !!prof?.gender, sql: `select ${name}::text as name,
+        ${prof?.gender ?? "null"}::text as gender,
         ${u.has("email") ? "nullif(u.email, '')" : "null"}::text as email,
         ${u.has("phone") ? "nullif(u.phone, '')" : "null"}::text as phone,
         ${provider.length ? `coalesce(${provider.join(", ")})` : "null"}::text as provider,
         u.created_at::timestamptz as created_at,
         ${seen ? `greatest(${lastSignIn}, s.seen)` : lastSignIn}::timestamptz as last_used
       from auth.users u
+      ${join}
       ${seen ? `left join (select user_id, ${seen}::timestamptz as seen from auth.sessions group by user_id) s on s.user_id = u.id` : ""}
-      ${u.has("deleted_at") ? "where u.deleted_at is null" : ""}`;
+      ${u.has("deleted_at") ? "where u.deleted_at is null" : ""}` };
   }
   if (!map) throw new UsersError("Pick the table that holds the users.");
   const cols = await c.query<{ column_name: string; data_type: string }>(
@@ -260,16 +305,17 @@ async function baseQuery(c: pg.PoolClient, kind: Kind, map: Mapping | null): Pro
     if (!types.has(name)) throw new UsersError(`${map.table} has no column "${name}" for ${label}.`);
     return `t.${ident(name)}`;
   };
-  const name = col("name", "the name"), email = col("email", "email"), phone = col("phone", "phone");
+  const name = col("name", "the name"), email = col("email", "email"), phone = col("phone", "phone"), gender = col("gender", "gender");
   const created = col("created", "account created"), last = col("lastUsed", "last used");
   if (!email && !phone) throw new UsersError("Map an email or a phone column: that's how a user signs in.");
-  return `select ${name ? `nullif(${name}::text, '')` : "null"}::text as name,
+  return { gender: !!gender, sql: `select ${name ? `nullif(${name}::text, '')` : "null"}::text as name,
+      ${gender ? `nullif(${gender}::text, '')` : "null"}::text as gender,
       ${email ? `nullif(${email}::text, '')` : "null"}::text as email,
       ${phone ? `nullif(${phone}::text, '')` : "null"}::text as phone,
       null::text as provider,
       ${created ? asTime(created, types.get(map.created!)!) : "null::timestamptz"} as created_at,
       ${last ? asTime(last, types.get(map.lastUsed!)!) : "null::timestamptz"} as last_used
-    from ${ident(map.schema)}.${ident(map.table)} t`;
+    from ${ident(map.schema)}.${ident(map.table)} t` };
 }
 
 export type Sort = "created" | "used" | "name";
@@ -280,9 +326,15 @@ const ORDER: Record<Sort, string> = {
 };
 export const PAGE_SIZE = 50;
 
-interface Page { total: number; page: number; totalPages: number; users: AppUser[]; counts: { total: number; new30: number; active7: number } }
+interface Page {
+  total: number; page: number; totalPages: number; users: AppUser[];
+  counts: { total: number; new30: number; active7: number };
+  /** Which optional columns this source has, so the table shows them even on a page where all are empty. */
+  fields: { gender: boolean };
+}
 
-async function readPage(c: pg.PoolClient, base: string, opts: { q?: string; sort?: Sort; page?: number }): Promise<Page> {
+async function readPage(c: pg.PoolClient, q0: { sql: string; gender: boolean }, opts: { q?: string; sort?: Sort; page?: number }): Promise<Page> {
+  const base = q0.sql;
   const counts = (await c.query<{ total: string; new30: string; active7: string }>(
     `select count(*) as total,
             count(*) filter (where created_at >= now() - interval '30 days') as new30,
@@ -296,13 +348,14 @@ async function readPage(c: pg.PoolClient, base: string, opts: { q?: string; sort
   const total = q ? Number((await c.query<{ n: string }>(`select count(*) as n from (${base}) x ${where}`, params)).rows[0]!.n) : Number(counts.total);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(Math.max(1, Math.trunc(opts.page ?? 1) || 1), totalPages);
-  const rows = await c.query<{ name: string | null; email: string | null; phone: string | null; provider: string | null; created_at: Date | null; last_used: Date | null }>(
+  const rows = await c.query<{ name: string | null; gender: string | null; email: string | null; phone: string | null; provider: string | null; created_at: Date | null; last_used: Date | null }>(
     `select * from (${base}) x ${where} order by ${ORDER[opts.sort ?? "created"] ?? ORDER.created} limit ${PAGE_SIZE} offset ${(page - 1) * PAGE_SIZE}`, params);
   const iso = (d: Date | null) => (d && !Number.isNaN(d.getTime()) ? d.toISOString() : null);
   return {
     total, page, totalPages,
-    users: rows.rows.map((r) => ({ name: r.name, email: r.email, phone: r.phone, provider: r.provider, createdAt: iso(r.created_at), lastUsedAt: iso(r.last_used) })),
+    users: rows.rows.map((r) => ({ name: r.name, gender: r.gender, email: r.email, phone: r.phone, provider: r.provider, createdAt: iso(r.created_at), lastUsedAt: iso(r.last_used) })),
     counts: { total: Number(counts.total), new30: Number(counts.new30), active7: Number(counts.active7) },
+    fields: { gender: q0.gender },
   };
 }
 
@@ -330,7 +383,7 @@ function cleanMapping(m: unknown): Mapping {
   const s = (k: string) => (typeof x[k] === "string" && (x[k] as string).trim() ? (x[k] as string).trim().slice(0, 63) : undefined);
   const schema = s("schema"), table = s("table");
   if (!schema || !table) throw new UsersError("Pick the table that holds the users.");
-  return { schema, table, name: s("name"), email: s("email"), phone: s("phone"), created: s("created"), lastUsed: s("lastUsed") };
+  return { schema, table, name: s("name"), email: s("email"), phone: s("phone"), gender: s("gender"), created: s("created"), lastUsed: s("lastUsed") };
 }
 
 /** Saves the source once a first page has actually been read through it. */

@@ -54,6 +54,7 @@ export function AppUsers({ app }: { app: UsersOwner }) {
 
 const FIELDS: { key: keyof Omit<UserMapping, "schema" | "table">; label: string; hint?: string }[] = [
   { key: "name", label: "Name" },
+  { key: "gender", label: "Gender" },
   { key: "email", label: "Email", hint: "Email or phone, at least one." },
   { key: "phone", label: "Phone" },
   { key: "created", label: "Account created" },
@@ -119,7 +120,12 @@ function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Ext
               </Field>
             )}
             {kind === "supabase" ? (
-              <p className="field-hint">Every account in <span className="mono">auth.users</span>: the name from its profile, email or phone, the provider it signs in with, when it was made, and the last sign-in or session refresh. Deleted accounts are left out.</p>
+              <p className="field-hint">
+                Every account in <span className="mono">auth.users</span>: email or phone, the provider it signs in with, when it was made, and the last sign-in or session refresh. Deleted accounts are left out.{" "}
+                {found.profile
+                  ? <>{found.profile.name && found.profile.gender ? "The name and gender" : found.profile.name ? "The name" : "The gender"} your app saved in <span className="mono">public.profiles</span> {found.profile.name ? "come first; the name Google or Apple sent fills in where the app has none." : "show beside each user."}</>
+                  : <>Names are the ones Google, Apple or the sign-up form sent.</>}
+              </p>
             ) : found.tables.length === 0 ? (
               <p className="field-hint">This login can't see any tables. Grant it read access to the users table, then look again.</p>
             ) : (
@@ -209,13 +215,14 @@ function UserList({ app, src, onChange, onDisconnect }: { app: UsersOwner; src: 
         : data.users.length === 0 ? <Card><Empty icon={<User size={22} />} title={q ? "No one matches" : "No users yet"}>{q ? `Nobody's name, email or phone contains "${q}".` : `When people sign up for ${app.name}, they show up here.`}</Empty></Card>
         : (
           <div className="send-log users-table" role="table" aria-label={`${app.name} users`}>
-            <div className="user-row is-head" role="row">
+            <div className={cls("user-row is-head", data.fields.gender && "has-gender")} role="row">
               <span role="columnheader">Name</span>
+              {data.fields.gender && <span role="columnheader" className="user-gender">Gender</span>}
               <span role="columnheader">Signs in with</span>
               <span role="columnheader" className="user-created">Account created</span>
               <span role="columnheader" className="user-used">Last used</span>
             </div>
-            {data.users.map((u, i) => <UserRow key={`${data.page}-${i}`} u={u} />)}
+            {data.users.map((u, i) => <UserRow key={`${data.page}-${i}`} u={u} gender={data.fields.gender} />)}
           </div>
         )}
       {data && data.totalPages > 1 && (
@@ -229,15 +236,18 @@ function UserList({ app, src, onChange, onDisconnect }: { app: UsersOwner; src: 
   );
 }
 
-function UserRow({ u }: { u: AppUser }) {
+const genderText = (g: string) => g.charAt(0).toUpperCase() + g.slice(1).toLowerCase();
+
+function UserRow({ u, gender }: { u: AppUser; gender: boolean }) {
   const id = u.email ?? (u.phone ? phoneText(u.phone) : "");
   const provider = u.provider ? PROVIDER[u.provider] ?? u.provider : null;
   return (
-    <div className="user-row" role="row">
+    <div className={cls("user-row", gender && "has-gender")} role="row">
       <span className="user-who" role="cell">
         <Avatar name={u.name || id.split("@")[0] || "?"} email={id || u.name || "?"} size={28} />
         <span className={cls("user-name", !u.name && "is-none")}>{u.name || "No name"}</span>
       </span>
+      {gender && <span className={cls("user-gender", !u.gender && "is-none")} role="cell">{u.gender ? genderText(u.gender) : "—"}</span>}
       <span className="user-auth" role="cell">
         {u.email && <span className="user-id">{u.email}</span>}
         {u.phone && <span className={cls("user-id", u.email && "is-second")}>{phoneText(u.phone)}</span>}

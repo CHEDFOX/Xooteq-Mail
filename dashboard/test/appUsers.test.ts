@@ -40,7 +40,8 @@ test("the hint names the database without its password", () => {
 
 test("column names are guessed for each field", () => {
   assert.deepEqual(guessMapping("public", "members", ["member_id", "full_name", "email_address", "mobile", "joined_at", "last_seen_at"]),
-    { schema: "public", table: "members", name: "full_name", email: "email_address", phone: "mobile", created: "joined_at", lastUsed: "last_seen_at" });
+    { schema: "public", table: "members", name: "full_name", email: "email_address", phone: "mobile", gender: undefined, created: "joined_at", lastUsed: "last_seen_at" });
+  assert.equal(guessMapping("public", "profiles", ["user_id", "full_name", "gender"]).gender, "gender");
   const g = guessMapping("public", "users", ["id", "name", "email", "phone_number", "created_at", "updated_at"]);
   assert.equal(g.name, "name"); assert.equal(g.phone, "phone_number"); assert.equal(g.lastUsed, "updated_at");
 });
@@ -74,6 +75,7 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     const r = await call("POST", `${at}/inspect`, { url: url("sb") });
     assert.equal(r.status, 200);
     assert.equal(r.body.supabase, true);
+    assert.deepEqual(r.body.profile, { name: true, gender: true });   // public.profiles: full_name, gender
     const names = r.body.tables.map((x: { schema: string; table: string }) => `${x.schema}.${x.table}`);
     assert.ok(names.includes("public.profiles"));
     assert.ok(!names.some((n: string) => n.startsWith("storage.") || n.startsWith("auth.")));
@@ -95,13 +97,19 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.equal(r.body.counts.new30, 28);           // created 1..29 days ago (the 30th is just past the edge), minus the deleted 13th
     assert.equal(r.body.users.length, 50);
     assert.equal(r.body.totalPages, 3);
+    assert.deepEqual(r.body.fields, { gender: true });
     const first = r.body.users[0];
     assert.equal(first.email, "user1@example.com");  // newest account first
-    assert.equal(first.name, "Person 1");
+    assert.equal(first.name, "Asha Rao");             // the name typed in the app beats the one Google sent
+    assert.equal(first.gender, "female");
     assert.equal(first.provider, "email");
     const byEmail = (e: string) => r.body.users.find((u: { email: string }) => u.email === e);
-    assert.equal(byEmail("user3@example.com").name, "Name 3");
-    assert.equal(byEmail("user4@example.com").name, null);
+    assert.equal(byEmail("user3@example.com").name, "Name 3");    // no name in the app: the provider's
+    assert.equal(byEmail("user3@example.com").gender, "male");
+    assert.equal(byEmail("user4@example.com").name, "App Name 4"); // the provider sent none: the app's
+    assert.equal(byEmail("user8@example.com").name, null);         // a blank in the app is no name
+    assert.equal(byEmail("user5@example.com"), undefined);         // (phone-only: checked below)
+    assert.equal(byEmail("user6@example.com").gender, null);
     assert.equal(byEmail("user3@example.com").provider, "google");
     assert.equal(r.body.users.find((u: { email: string }) => u.email === "user17@example.com").provider, "anonymous");
     const phoneOnly = r.body.users.find((u: { phone: string }) => u.phone === "919876500005");
@@ -142,7 +150,8 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     const r = await call("GET", at);
     assert.equal(r.body.total, 120);                  // no deleted_at to read, so nothing is hidden
     assert.equal(r.body.users[0].provider, null);
-    assert.equal(r.body.users[0].name, "Person 1");
+    assert.equal(r.body.users[0].name, "Person 1");   // can't read profiles: the provider's name
+    assert.deepEqual(r.body.fields, { gender: false });
   });
 
   await t.test("any table, mapped once: epoch-millisecond dates and all", async () => {
@@ -156,6 +165,7 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.equal((await call("GET", `${at}/source`)).body.mapping.table, "members");
     const r = await call("GET", at);
     assert.equal(r.body.total, 30);
+    assert.deepEqual(r.body.fields, { gender: false });
     const m1 = r.body.users[0];
     assert.equal(m1.name, "Member 1");
     assert.equal(m1.phone, "+44 7700 900001");

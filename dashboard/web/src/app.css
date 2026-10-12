@@ -1134,6 +1134,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 116px 100px; align-items: center; gap: 14px;
   padding: 9px 16px; border-bottom: 1px solid var(--line-2); font-size: 13.5px;
 }
+.user-row.has-gender { grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1.25fr) 116px 100px; }
 .user-row:last-child { border-bottom: 0; }
 .user-row:not(.is-head):hover { background: var(--hover); }
 .user-row.is-head {
@@ -1142,15 +1143,16 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 .user-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .user-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.user-name.is-none, .user-used.is-none { color: var(--ink-3); font-weight: 450; }
+.user-name.is-none, .user-used.is-none, .user-gender.is-none { color: var(--ink-3); font-weight: 450; }
+.user-gender { color: var(--ink-2); font-size: 12.5px; }
 .user-auth { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; min-width: 0; }
 .user-id { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .user-id.is-second { color: var(--ink-3); font-size: 12.5px; }
 .user-created, .user-used { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .user-used { text-align: right; }
 @media (max-width: 720px) {
-  .user-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
-  .user-created { display: none; }
+  .user-row, .user-row.has-gender { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .user-created, .user-gender { display: none; }
   .users-search .input { width: 100%; }
 }
 

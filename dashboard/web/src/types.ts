@@ -94,9 +94,9 @@ export type SendMessage = {
 export type SendPage<T> = { page: number; totalPages: number; total: number } & T;
 
 // An app's Users tab: its own database's users (server/appUsers.ts).
-export type UserMapping = { schema: string; table: string; name?: string; email?: string; phone?: string; created?: string; lastUsed?: string };
+export type UserMapping = { schema: string; table: string; name?: string; email?: string; phone?: string; gender?: string; created?: string; lastUsed?: string };
 export type UserSource = { connected: false } | { connected: true; kind: "supabase" | "table"; hint: string; mapping: UserMapping | null; updatedAt: number };
 export type UserTable = { schema: string; table: string; columns: { name: string; type: string }[]; guess: UserMapping };
-export type UserInspect = { hint: string; supabase: boolean; tables: UserTable[] };
-export type AppUser = { name: string | null; email: string | null; phone: string | null; provider: string | null; createdAt: string | null; lastUsedAt: string | null };
-export type AppUsersPage = SendPage<{ users: AppUser[]; counts: { total: number; new30: number; active7: number } }>;
+export type UserInspect = { hint: string; supabase: boolean; profile: { name: boolean; gender: boolean } | null; tables: UserTable[] };
+export type AppUser = { name: string | null; gender: string | null; email: string | null; phone: string | null; provider: string | null; createdAt: string | null; lastUsedAt: string | null };
+export type AppUsersPage = SendPage<{ users: AppUser[]; counts: { total: number; new30: number; active7: number }; fields: { gender: boolean } }>;

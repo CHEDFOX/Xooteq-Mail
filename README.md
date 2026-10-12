@@ -392,12 +392,15 @@ Addresses) and on each Sending app; each keeps its own connection. It takes a
 Postgres connection string once. For a Supabase
 project (Tailzu): the project's **Connect** button → **Session pooler** (the
 direct host is IPv6-only, which the VPS may not reach), with the database
-password filled in. Xooteq recognises Supabase and reads `auth.users`: the name
-from the profile's metadata, email or phone, the provider, created, and last used
-(the later of the last sign-in and the last session refresh). Deleted accounts
+password filled in. Xooteq recognises Supabase and reads `auth.users`: email or
+phone, the provider, created, and last used (the later of the last sign-in and
+the last session refresh). The name and gender come from the app's own
+`public.profiles` when it has them (Tailzu's `full_name` and `gender`, keyed by
+`user_id`; a `profiles.id` key works too), and the name falls back to the one
+Google, Apple or the sign-up form sent. Deleted accounts
 are left out. Any other Postgres works too: pick the table, and map which column
-is the name, email, phone, account created and last used (guessed from the
-column names; dates may be timestamps or epoch seconds/ms).
+is the name, gender, email, phone, account created and last used (guessed from
+the column names; dates may be timestamps or epoch seconds/ms).
 
 Xooteq only reads: every query runs in a `READ ONLY` transaction with a 15-second
 limit. The connection string is stored encrypted (like the AI keys) and never
