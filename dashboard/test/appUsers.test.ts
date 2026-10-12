@@ -40,7 +40,8 @@ test("the hint names the database without its password", () => {
 
 test("column names are guessed for each field", () => {
   assert.deepEqual(guessMapping("public", "members", ["member_id", "full_name", "email_address", "mobile", "joined_at", "last_seen_at"]),
-    { schema: "public", table: "members", name: "full_name", email: "email_address", phone: "mobile", gender: undefined, created: "joined_at", lastUsed: "last_seen_at" });
+    { schema: "public", table: "members", name: "full_name", email: "email_address", phone: "mobile", gender: undefined, created: "joined_at", onboarded: undefined, lastUsed: "last_seen_at" });
+  assert.equal(guessMapping("public", "profiles", ["id", "name", "onboarded_at", "onboarded"]).onboarded, "onboarded_at");
   assert.equal(guessMapping("public", "profiles", ["user_id", "full_name", "gender"]).gender, "gender");
   const g = guessMapping("public", "users", ["id", "name", "email", "phone_number", "created_at", "updated_at"]);
   assert.equal(g.name, "name"); assert.equal(g.phone, "phone_number"); assert.equal(g.lastUsed, "updated_at");
@@ -75,7 +76,8 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     const r = await call("POST", `${at}/inspect`, { url: url("sb") });
     assert.equal(r.status, 200);
     assert.equal(r.body.supabase, true);
-    assert.deepEqual(r.body.profile, { schema: "public", table: "profiles", key: "user_id", name: "full_name", gender: "gender" });
+    assert.deepEqual(r.body.profile, { schema: "public", table: "profiles", key: "user_id", name: "full_name", gender: "gender",
+      onboardedAt: "onboarded_at", onboarded: "onboarded", lastSeen: "last_seen_at" });
     const names = r.body.tables.map((x: { schema: string; table: string }) => `${x.schema}.${x.table}`);
     assert.ok(names.includes("public.profiles"));
     assert.ok(!names.some((n: string) => n.startsWith("storage.") || n.startsWith("auth.")));
@@ -97,7 +99,8 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.equal(r.body.counts.new30, 28);           // created 1..29 days ago (the 30th is just past the edge), minus the deleted 13th
     assert.equal(r.body.users.length, 50);
     assert.equal(r.body.totalPages, 3);
-    assert.deepEqual(r.body.fields, { gender: true });
+    assert.deepEqual(r.body.fields, { gender: true, onboarded: true, onboardedDate: true });
+    assert.equal(r.body.counts.onboarded, 4);         // user1, 3, 4, and user6 who finished before dates were kept
     const first = r.body.users[0];
     assert.equal(first.email, "user1@example.com");  // newest account first
     assert.equal(first.name, "Asha Rao");             // the name typed in the app beats the one Google sent
@@ -116,6 +119,15 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.equal(phoneOnly.email, null);
     assert.equal(phoneOnly.provider, "phone");
     assert.equal(r.body.users.find((u: { email: string }) => u.email === "user7@example.com").lastUsedAt, null);
+    // Onboarding: the day it was finished, a yes with no day, and not yet.
+    assert.ok(Date.now() - Date.parse(first.onboardedAt) < 2 * 86_400_000, `user1 onboarded ${first.onboardedAt}`);
+    assert.equal(first.onboarded, true);
+    assert.equal(byEmail("user6@example.com").onboarded, true);
+    assert.equal(byEmail("user6@example.com").onboardedAt, null);
+    assert.equal(byEmail("user2@example.com").onboarded, false);
+    // The app saw user11 ten minutes ago: that is when they last used it, whatever the sign-ins say.
+    const u11 = Date.parse(byEmail("user11@example.com").lastUsedAt);
+    assert.ok(Date.now() - u11 < 3600_000, `user11 last used ${new Date(u11).toISOString()}`);
     // A session refreshed an hour ago counts as using the app, though the last sign-in was two days ago.
     const u2 = Date.parse(byEmail("user2@example.com").lastUsedAt);
     assert.ok(Date.now() - u2 < 2 * 3600_000, `user2 last used ${new Date(u2).toISOString()}`);
@@ -135,6 +147,9 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.deepEqual(seen, [...seen].sort((a: number, b: number) => b - a));   // most recent first, never-used last
     assert.ok(used.body.users.slice(0, 12).some((u: { email: string }) => u.email === "user2@example.com"));
     // By what the row shows first: the name, else the email, else the phone.
+    const onb = await call("GET", `${at}?sort=onboarded`);
+    assert.deepEqual(onb.body.users.slice(0, 4).map((u: { email: string }) => u.email),
+      ["user1@example.com", "user3@example.com", "user4@example.com", "user6@example.com"]);   // latest finish first, then a yes with no date
     const named = await call("GET", `${at}?sort=name`);
     const keys = named.body.users.map((u: { name: string | null; email: string | null; phone: string | null }) => (u.name ?? u.email ?? u.phone ?? "").toLowerCase());
     assert.deepEqual(keys, [...keys].sort((a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)));
@@ -151,7 +166,8 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.equal(r.body.total, 120);                  // no deleted_at to read, so nothing is hidden
     assert.equal(r.body.users[0].provider, null);
     assert.equal(r.body.users[0].name, "Person 1");   // can't read profiles: the provider's name
-    assert.deepEqual(r.body.fields, { gender: false });
+    assert.deepEqual(r.body.fields, { gender: false, onboarded: false, onboardedDate: false });
+    assert.equal(r.body.users[0].onboarded, null);
   });
 
   await t.test("any table, mapped once: epoch-millisecond dates and all", async () => {
@@ -159,16 +175,19 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.equal(i.body.supabase, false);
     const members = i.body.tables[0];
     assert.equal(members.table, "members");           // the likely table first
-    assert.deepEqual(members.guess, { schema: "public", table: "members", name: "full_name", email: "email_address", phone: "mobile", created: "joined_at", lastUsed: "last_seen_at" });
+    assert.deepEqual(members.guess, { schema: "public", table: "members", name: "full_name", email: "email_address", phone: "mobile", created: "joined_at", onboarded: "onboarded_on", lastUsed: "last_seen_at" });
     const c = await call("PUT", `${at}/source`, { url: url("plain", "plainreader"), kind: "table", mapping: members.guess });
     assert.equal(c.status, 200, JSON.stringify(c.body));
     assert.equal((await call("GET", `${at}/source`)).body.mapping.table, "members");
     const r = await call("GET", at);
     assert.equal(r.body.total, 30);
-    assert.deepEqual(r.body.fields, { gender: false });
+    assert.deepEqual(r.body.fields, { gender: false, onboarded: true, onboardedDate: true });
+    assert.equal(r.body.counts.onboarded, 15);        // the odd-numbered members
     const m1 = r.body.users[0];
     assert.equal(m1.name, "Member 1");
     assert.equal(m1.phone, "+44 7700 900001");
+    assert.ok(m1.onboardedAt && m1.onboarded, JSON.stringify(m1));
+    assert.equal(r.body.users[1].onboarded, false);
     // Epoch milliseconds read as dates: member n joined 3n days before the fixture was made.
     const m2 = r.body.users[1];
     assert.equal(m2.name, "Member 2");
@@ -229,7 +248,7 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.deepEqual((await call("GET", `${at}/source`)).body.profile, picked);
     const r2 = await call("GET", at);
     assert.equal(r2.body.users.find((u: { email: string }) => u.email === "p4@plutto.test").name, "Nick p4");
-    assert.deepEqual(r2.body.fields, { gender: false });
+    assert.deepEqual(r2.body.fields, { gender: false, onboarded: false, onboardedDate: false });
     const bad = await call("PUT", `${at}/source`, { kind: "supabase", profile: { ...picked, name: "nope" } });
     assert.equal(bad.status, 400);
     assert.match(bad.body.error, /no column "nope"/);

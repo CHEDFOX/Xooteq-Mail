@@ -58,19 +58,22 @@ const FIELDS: { key: keyof Omit<UserMapping, "schema" | "table">; label: string;
   { key: "email", label: "Email", hint: "Email or phone, at least one." },
   { key: "phone", label: "Phone" },
   { key: "created", label: "Account created" },
+  { key: "onboarded", label: "Onboarded", hint: "When they finished onboarding." },
   { key: "lastUsed", label: "Last used" },
 ];
 
-/** "profiles · full_name, gender", or with its schema when not public. */
+/** "profiles · full_name, gender, onboarded_at", or with its schema when not public. */
 const whereNames = (p: ProfileMap) =>
-  `${p.schema === "public" ? "" : `${p.schema}.`}${p.table} · ${[[p.name, p.nameLast].filter(Boolean).join(" + "), p.gender].filter(Boolean).join(", ")}`;
+  `${p.schema === "public" ? "" : `${p.schema}.`}${p.table} · ${[[p.name, p.nameLast].filter(Boolean).join(" + "), p.gender, p.onboardedAt ?? p.onboarded, p.lastSeen].filter(Boolean).join(", ")}`;
 
-/** A first guess for a table picked by hand: its user-id column, name and gender. */
+/** A first guess for a table picked by hand: its user-id column, name, gender and onboarding. */
 function guessNames(t: UserTable): ProfileMap {
   const cols = t.columns.map((c) => c.name);
   const key = cols.find((c) => /^(user_?id|uid|user_?uuid|auth_?(user_?)?id|owner_?id)$/i.test(c))
     ?? cols.find((c) => c === "id") ?? t.columns.find((c) => c.type === "uuid")?.name ?? cols[0] ?? "";
-  return { schema: t.schema, table: t.table, key, name: t.guess.name, gender: t.guess.gender };
+  const flag = t.columns.find((c) => c.type === "boolean" && /^(is_?|has_?)?onboarded$|^onboarding_?(complete|completed|done|finished)$/i.test(c.name))?.name;
+  const seen = t.columns.find((c) => /timestamp|date/i.test(c.type) && /^last_?(seen|active|activity|used|opened)(_?at)?$/i.test(c.name))?.name;
+  return { schema: t.schema, table: t.table, key, name: t.guess.name, gender: t.guess.gender, onboardedAt: t.guess.onboarded, onboarded: flag, lastSeen: seen };
 }
 
 function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Extract<UserSource, { connected: true }> | null; onDone: (users: number) => void; onCancel?: () => void }) {
@@ -108,7 +111,7 @@ function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Ext
 
   return (
     <>
-      <PageHead title="Users" sub={`The people who use ${app.name}, read from its own database: their name, how they sign in, when they joined and when they last used it.`}
+      <PageHead title="Users" sub={`The people who use ${app.name}, read from its own database: their name, gender, email, when they joined and finished onboarding, and when they last used it.`}
         actions={onCancel && <Button variant="ghost" onClick={onCancel}>Cancel</Button>} />
       <Card title={saved ? "Change the connection" : "Connect the database"}
         subtitle={<>Xooteq only reads: every query runs in a read-only transaction. The connection string is stored encrypted and never shown again.</>}>
@@ -138,7 +141,7 @@ function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Ext
               <>
                 <p className="field-hint">Every account in <span className="mono">auth.users</span>: email or phone, the provider it signs in with, when it was made, and the last sign-in or session refresh. Deleted accounts are left out.</p>
                 <div className="users-names">
-                  <span className="mini-label">Names and gender</span>
+                  <span className="mini-label">Names, gender and onboarding</span>
                   {!names ? (
                     <p className="field-hint">
                       {found.profile
@@ -162,6 +165,9 @@ function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Ext
                           ["name", "Name", undefined],
                           ["nameLast", "Last name", "Only if the name is split in two."],
                           ["gender", "Gender", undefined],
+                          ["onboardedAt", "Onboarded on", "When they finished onboarding (a date)."],
+                          ["onboarded", "Onboarding finished", "A yes/no column, if there's no date."],
+                          ["lastSeen", "Last seen", "The app's own last-activity time, if it keeps one."],
                         ] as const).map(([k, label, hint]) => (
                           <Field key={k} label={label} hint={hint}>
                             <select className="input select" value={names[k] ?? ""} onChange={(e) => setNames({ ...names, [k]: e.target.value || (k === "key" ? "" : undefined) })}>
@@ -206,7 +212,8 @@ function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Ext
             <div className="form-foot">
               <Button variant="ghost" onClick={() => setFound(null)}>Back</Button>
               <Button variant="primary" busy={busy === "save"} onClick={save}
-                disabled={kind === "table" ? !(map && (map.email || map.phone)) : !!names && !(names.key && (names.name || names.gender))}>Connect</Button>
+                disabled={kind === "table" ? !(map && (map.email || map.phone))
+                  : !!names && !(names.key && (names.name || names.gender || names.onboardedAt || names.onboarded || names.lastSeen))}>Connect</Button>
             </div>
           </div>
         </Card>
@@ -217,7 +224,7 @@ function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Ext
 
 // ---- the list ---------------------------------------------------------------------------------
 
-type Sort = "created" | "used" | "name";
+type Sort = "created" | "onboarded" | "used" | "name";
 
 function UserList({ app, src, onChange, onDisconnect }: { app: UsersOwner; src: Extract<UserSource, { connected: true }>; onChange: () => void; onDisconnect: () => void }) {
   const [q, setQ] = useState("");
@@ -245,6 +252,9 @@ function UserList({ app, src, onChange, onDisconnect }: { app: UsersOwner; src: 
           <div><b>{n(data.counts.total)}</b><span>users</span></div>
           <div><b>{n(data.counts.new30)}</b><span>joined, last 30 days</span></div>
           <div><b>{n(data.counts.active7)}</b><span>used it, last 7 days</span></div>
+          {data.fields.onboarded && (
+            <div><b>{n(data.counts.onboarded)}</b><span>finished onboarding{data.counts.total ? ` · ${Math.round((100 * data.counts.onboarded) / data.counts.total)}%` : ""}</span></div>
+          )}
         </div>
       )}
       <div className="send-filters">
@@ -256,7 +266,9 @@ function UserList({ app, src, onChange, onDisconnect }: { app: UsersOwner; src: 
         </form>
         <span className="bar-fill" />
         <Segmented size="sm" value={sort} onChange={(v) => { setSort(v); setPage(1); }} options={[
-          { value: "created", label: "Newest" }, { value: "used", label: "Last used" }, { value: "name", label: "Name" },
+          { value: "created", label: "Newest" },
+          ...(data?.fields.onboarded ? [{ value: "onboarded" as const, label: "Onboarded" }] : []),
+          { value: "used", label: "Last used" }, { value: "name", label: "Name" },
         ]} />
         <button className="icon-btn" aria-label="Refresh" data-tip="Refresh" onClick={load}><Refresh size={16} /></button>
       </div>
@@ -265,14 +277,15 @@ function UserList({ app, src, onChange, onDisconnect }: { app: UsersOwner; src: 
         : data.users.length === 0 ? <Card><Empty icon={<User size={22} />} title={q ? "No one matches" : "No users yet"}>{q ? `Nobody's name, email or phone contains "${q}".` : `When people sign up for ${app.name}, they show up here.`}</Empty></Card>
         : (
           <div className="send-log users-table" role="table" aria-label={`${app.name} users`}>
-            <div className={cls("user-row is-head", data.fields.gender && "has-gender")} role="row">
+            <div className={cls("user-row is-head", data.fields.gender && "has-gender", data.fields.onboarded && "has-onboarded")} role="row">
               <span role="columnheader">Name</span>
               {data.fields.gender && <span role="columnheader" className="user-gender">Gender</span>}
-              <span role="columnheader">Signs in with</span>
-              <span role="columnheader" className="user-created">Account created</span>
+              <span role="columnheader">Email</span>
+              <span role="columnheader" className="user-created">Joined</span>
+              {data.fields.onboarded && <span role="columnheader" className="user-onboarded">Onboarded</span>}
               <span role="columnheader" className="user-used">Last used</span>
             </div>
-            {data.users.map((u, i) => <UserRow key={`${data.page}-${i}`} u={u} gender={data.fields.gender} />)}
+            {data.users.map((u, i) => <UserRow key={`${data.page}-${i}`} u={u} gender={data.fields.gender} onboarded={data.fields.onboarded} />)}
           </div>
         )}
       {data && data.totalPages > 1 && (
@@ -288,11 +301,20 @@ function UserList({ app, src, onChange, onDisconnect }: { app: UsersOwner; src: 
 
 const genderText = (g: string) => g.charAt(0).toUpperCase() + g.slice(1).toLowerCase();
 
-function UserRow({ u, gender }: { u: AppUser; gender: boolean }) {
+/** The onboarding cell: the day they finished, else yes or not yet, else nothing known. */
+function onboardedText(u: AppUser): { text: string; none: boolean } {
+  if (u.onboardedAt) return { text: dateText(u.onboardedAt), none: false };
+  if (u.onboarded === true) return { text: "Yes", none: false };
+  if (u.onboarded === false) return { text: "Not yet", none: true };
+  return { text: "—", none: true };
+}
+
+function UserRow({ u, gender, onboarded }: { u: AppUser; gender: boolean; onboarded: boolean }) {
   const id = u.email ?? (u.phone ? phoneText(u.phone) : "");
   const provider = u.provider ? PROVIDER[u.provider] ?? u.provider : null;
+  const onb = onboardedText(u);
   return (
-    <div className={cls("user-row", gender && "has-gender")} role="row">
+    <div className={cls("user-row", gender && "has-gender", onboarded && "has-onboarded")} role="row">
       <span className="user-who" role="cell">
         <Avatar name={u.name || id.split("@")[0] || "?"} email={id || u.name || "?"} size={28} />
         <span className={cls("user-name", !u.name && "is-none")}>{u.name || "No name"}</span>
@@ -304,6 +326,9 @@ function UserRow({ u, gender }: { u: AppUser; gender: boolean }) {
         {provider && <Pill tone={u.provider === "anonymous" ? "warn" : "neutral"}>{provider}</Pill>}
       </span>
       <span className="user-created" role="cell" title={u.createdAt ? new Date(u.createdAt).toLocaleString() : undefined}>{u.createdAt ? dateText(u.createdAt) : "—"}</span>
+      {onboarded && (
+        <span className={cls("user-onboarded", onb.none && "is-none")} role="cell" title={u.onboardedAt ? new Date(u.onboardedAt).toLocaleString() : undefined}>{onb.text}</span>
+      )}
       <span className={cls("user-used", !u.lastUsedAt && "is-none")} role="cell" title={u.lastUsedAt ? new Date(u.lastUsedAt).toLocaleString() : undefined}>
         {u.lastUsedAt ? ago(u.lastUsedAt) : "Never"}
       </span>

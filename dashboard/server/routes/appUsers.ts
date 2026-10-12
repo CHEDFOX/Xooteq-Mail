@@ -49,7 +49,7 @@ export async function appUserRoutes(app: FastifyInstance) {
 
     app.get(at, async (req) => {
       const q = req.query as { q?: string; sort?: string; page?: string };
-      const sort: Sort = q.sort === "used" || q.sort === "name" ? q.sort : "created";
+      const sort: Sort = q.sort === "used" || q.sort === "name" || q.sort === "onboarded" ? q.sort : "created";
       return listUsers(key(req), { q: q.q, sort, page: Number(q.page) || 1 });
     });
   }

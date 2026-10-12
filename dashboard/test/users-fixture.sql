@@ -25,9 +25,11 @@ create table auth.users (
 create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id),
   created_at timestamptz, updated_at timestamptz, refreshed_at timestamp without time zone, user_agent text);
 create table storage.objects (id uuid, name text, owner uuid);
--- Tailzu's own: the name and gender the app asks for, keyed by user_id.
+-- Tailzu's own: the name and gender the app asks for, keyed by user_id, whether
+-- and when onboarding was finished, and the app's own last-seen time.
 create table public.profiles (user_id uuid primary key references auth.users (id) on delete cascade,
-  language text not null default 'auto', full_name text, gender text, created_at timestamptz not null default now());
+  language text not null default 'auto', full_name text, gender text, created_at timestamptz not null default now(),
+  onboarded boolean not null default false, onboarded_at timestamptz, last_seen_at timestamptz);
 insert into auth.users (email, phone, created_at, last_sign_in_at, raw_app_meta_data, raw_user_meta_data, deleted_at, is_anonymous)
 select
   case when i % 5 = 0 then null else 'user' || i || '@example.com' end,
@@ -41,10 +43,16 @@ select
 from generate_series(1, 120) i;
 -- Every account has a row (Tailzu's trigger makes one); a few were filled in.
 -- user1's app name beats the one Google sent; user4 sent none; user8's is blank.
-insert into public.profiles (user_id, full_name, gender)
+-- Onboarded: user1, user3, user4 with the day they finished; user6 finished before
+-- the app kept a date. user11 was seen by the app ten minutes ago.
+insert into public.profiles (user_id, full_name, gender, onboarded, onboarded_at, last_seen_at)
 select u.id,
   case u.email when 'user1@example.com' then 'Asha Rao' when 'user4@example.com' then 'App Name 4' when 'user8@example.com' then '   ' end,
-  case u.email when 'user1@example.com' then 'female' when 'user4@example.com' then 'female' when 'user3@example.com' then 'male' end
+  case u.email when 'user1@example.com' then 'female' when 'user4@example.com' then 'female' when 'user3@example.com' then 'male' end,
+  coalesce(u.email in ('user1@example.com', 'user3@example.com', 'user4@example.com', 'user6@example.com'), false),
+  case u.email when 'user1@example.com' then now() - interval '1 day' when 'user3@example.com' then now() - interval '2 days'
+    when 'user4@example.com' then now() - interval '3 days' end,
+  case u.email when 'user11@example.com' then now() - interval '10 minutes' end
 from auth.users u;
 insert into auth.sessions (user_id, created_at, updated_at, refreshed_at)
 select id, now() - interval '2 days', now() - interval '2 days', (now() - interval '1 hour')::timestamp from auth.users where email = 'user2@example.com';
@@ -74,10 +82,13 @@ create table public.onboarding (uid uuid, nick text);
 insert into public.onboarding select id, 'Nick ' || split_part(email, '@', 1) from auth.users;
 \else
 create table public.orders (id serial primary key, total numeric, created_at timestamptz);
-create table public.members (member_id serial primary key, full_name text, email_address text, mobile text, joined_at bigint, last_seen_at timestamp);
-insert into public.members (full_name, email_address, mobile, joined_at, last_seen_at)
+create table public.members (member_id serial primary key, full_name text, email_address text, mobile text, joined_at bigint,
+  onboarded_on date, last_seen_at timestamp);
+insert into public.members (full_name, email_address, mobile, joined_at, onboarded_on, last_seen_at)
 select 'Member ' || i, 'm' || i || '@plain.test', '+44 7700 9000' || lpad(i::text, 2, '0'),
-  (extract(epoch from now() - (i * 3 || ' days')::interval) * 1000)::bigint, now() - (i || ' hours')::interval
+  (extract(epoch from now() - (i * 3 || ' days')::interval) * 1000)::bigint,
+  case when i % 2 = 1 then (now() - (i * 3 - 1 || ' days')::interval)::date end,
+  now() - (i || ' hours')::interval
 from generate_series(1, 30) i;
 create role plainreader login; grant select on public.members to plainreader;
 \endif

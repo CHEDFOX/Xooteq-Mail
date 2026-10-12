@@ -94,11 +94,11 @@ export type SendMessage = {
 export type SendPage<T> = { page: number; totalPages: number; total: number } & T;
 
 // An app's Users tab: its own database's users (server/appUsers.ts).
-export type UserMapping = { schema: string; table: string; name?: string; email?: string; phone?: string; gender?: string; created?: string; lastUsed?: string };
+export type UserMapping = { schema: string; table: string; name?: string; email?: string; phone?: string; gender?: string; created?: string; onboarded?: string; lastUsed?: string };
 /** Where a Supabase app keeps the names (and gender) it collects: a table, its user-id column, and its columns. */
-export type ProfileMap = { schema: string; table: string; key: string; name?: string; nameLast?: string; gender?: string };
+export type ProfileMap = { schema: string; table: string; key: string; name?: string; nameLast?: string; gender?: string; onboardedAt?: string; onboarded?: string; lastSeen?: string };
 export type UserSource = { connected: false } | { connected: true; kind: "supabase" | "table"; hint: string; mapping: UserMapping | null; profile: ProfileMap | null; updatedAt: number };
 export type UserTable = { schema: string; table: string; columns: { name: string; type: string }[]; guess: UserMapping };
 export type UserInspect = { hint: string; supabase: boolean; profile: ProfileMap | null; tables: UserTable[] };
-export type AppUser = { name: string | null; gender: string | null; email: string | null; phone: string | null; provider: string | null; createdAt: string | null; lastUsedAt: string | null };
-export type AppUsersPage = SendPage<{ users: AppUser[]; counts: { total: number; new30: number; active7: number }; fields: { gender: boolean } }>;
+export type AppUser = { name: string | null; gender: string | null; email: string | null; phone: string | null; provider: string | null; createdAt: string | null; onboardedAt: string | null; onboarded: boolean | null; lastUsedAt: string | null };
+export type AppUsersPage = SendPage<{ users: AppUser[]; counts: { total: number; new30: number; active7: number; onboarded: number }; fields: { gender: boolean; onboarded: boolean; onboardedDate: boolean } }>;

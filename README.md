@@ -366,9 +366,10 @@ contact form), each with:
 - **Overview**: sent, bounced and held in the last 24 hours, the last 14 days,
   and the exact settings to paste into Supabase (SMTP) or code (HTTP API), with a
   **Send a test**.
-- **Users**: the people who use the app, read from its own database: name, how
-  they sign in (email or phone, and the provider), when the account was made and
-  when it was last used, with totals, search and sorting. See below.
+- **Users**: the people who use the app, read from its own database: name,
+  gender, email (or phone, and the provider), when the account was made, when
+  they finished onboarding and when they last used it, with totals, search and
+  sorting. See below.
 - **Messages**: everything it sent or received, searchable by address and status;
   open one to see each delivery attempt and the receiver's answer, and **Send
   again** or **Release** a held one.
@@ -393,20 +394,26 @@ Postgres connection string once. For a Supabase
 project (Tailzu): the project's **Connect** button → **Session pooler** (the
 direct host is IPv6-only, which the VPS may not reach), with the database
 password filled in. Xooteq recognises Supabase and reads `auth.users`: email or
-phone, the provider, created, and last used (the later of the last sign-in and
-the last session refresh). The name and gender come first from wherever the app
+phone, the provider, created, and last used (the latest of the last sign-in, the
+last session refresh and, where the app keeps one, its own last-seen time). The
+name and gender come first from wherever the app
 saves what it asks at onboarding, and the name falls back to the one Google,
 Apple or the sign-up form sent (`full_name`, `name`, `given_name` + `family_name`
 and the other usual keys). That table is found by itself: any table linked to
 `auth.users` by a foreign key (one row per user), or `public.profiles` / `users`
 by `user_id` or `id`, with a name column such as `full_name`, `displayName`,
 `name` or first + last name, and `gender`. Tailzu's is `public.profiles`
-(`full_name`, `gender`). The Connect screen shows what it found; **Pick another
-table** chooses the table, its user-id column and its name and gender columns
-by hand, for an app that keeps them somewhere unusual. Deleted accounts
-are left out. Any other Postgres works too: pick the table, and map which column
-is the name, gender, email, phone, account created and last used (guessed from
-the column names; dates may be timestamps or epoch seconds/ms).
+(`full_name`, `gender`). The same table gives **Onboarded**: the day onboarding
+was finished (`onboarded_at`, `onboarding_completed_at`…), or, where the app keeps
+only a yes/no (`onboarded`, `is_onboarded`…), Yes or Not yet; with a count of
+who finished and an Onboarded sort. Its last-seen column (`last_seen_at`,
+`last_active_at`…) counts toward Last used. The Connect screen shows what it
+found; **Pick another table** chooses the table, its user-id column and its
+name, gender, onboarding and last-seen columns by hand, for an app that keeps
+them somewhere unusual. Deleted accounts are left out. Any other Postgres works
+too: pick the table, and map which column is the name, gender, email, phone,
+account created, onboarded and last used (guessed from the column names; dates
+may be timestamps or epoch seconds/ms).
 
 Xooteq only reads: every query runs in a `READ ONLY` transaction with a 15-second
 limit. The connection string is stored encrypted (like the AI keys) and never
