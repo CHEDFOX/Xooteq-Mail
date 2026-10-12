@@ -38,8 +38,8 @@ export async function appUserRoutes(app: FastifyInstance) {
     });
 
     app.put(`${at}/source`, async (req) => {
-      const b = (req.body ?? {}) as { url?: unknown; kind?: string; mapping?: unknown };
-      return connect(key(req), { url: typeof b.url === "string" ? b.url : undefined, kind: b.kind, mapping: b.mapping });
+      const b = (req.body ?? {}) as { url?: unknown; kind?: string; mapping?: unknown; profile?: unknown };
+      return connect(key(req), { url: typeof b.url === "string" ? b.url : undefined, kind: b.kind, mapping: b.mapping, profile: b.profile });
     });
 
     app.delete(`${at}/source`, async (req) => {

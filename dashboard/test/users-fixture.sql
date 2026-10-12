@@ -2,6 +2,7 @@
 --   createdb sb && createdb plain
 --   psql -d sb -f test/users-fixture.sql -v which=sb
 --   psql -d plain -f test/users-fixture.sql -v which=plain
+--   psql -d sb2 -f test/users-fixture.sql -v which=sb2
 -- "sb" is shaped like a Supabase project's auth schema (120 users: one deleted,
 -- one anonymous, every fifth phone-only, one with a session refreshed an hour
 -- ago), a public.profiles with the names and gender the app collected, and a
@@ -9,10 +10,10 @@
 -- "plain" is an app's own members table, dates in epoch milliseconds.
 \if :{?which}
 \else
-  \echo 'pass -v which=sb or -v which=plain'
+  \echo 'pass -v which=sb, sb2 or plain'
   \quit
 \endif
-SELECT :'which' = 'sb' AS is_sb \gset
+SELECT :'which' = 'sb' AS is_sb, :'which' = 'sb2' AS is_sb2 \gset
 \if :is_sb
 create schema auth; create schema storage;
 create table auth.users (
@@ -50,6 +51,27 @@ select id, now() - interval '2 days', now() - interval '2 days', (now() - interv
 create role reader login;
 grant usage on schema auth to reader;
 grant select (id, email, phone, created_at, last_sign_in_at, raw_user_meta_data) on auth.users to reader;
+\elif :is_sb2
+-- Another app's layout: names in a table of its own (app_users, camelCase
+-- "displayName", linked by a unique foreign key), Google's given/family names
+-- in the sign-in data, an orders table whose "name" is not a person's, and an
+-- onboarding table with no foreign key, for picking by hand.
+create schema auth;
+create table auth.users (id uuid primary key default gen_random_uuid(), email varchar(255), phone text,
+  created_at timestamptz, last_sign_in_at timestamptz, raw_app_meta_data jsonb, raw_user_meta_data jsonb, deleted_at timestamptz);
+insert into auth.users (email, created_at, raw_app_meta_data, raw_user_meta_data)
+select 'p' || i || '@plutto.test', now() - (i || ' days')::interval, '{"provider":"google"}',
+  case when i = 2 then '{"given_name":"Given","family_name":"Family"}'::jsonb else '{}'::jsonb end
+from generate_series(1, 6) i;
+create table public.app_users (user_ref uuid unique references auth.users (id), "displayName" text, sex text);
+insert into public.app_users
+select id, case email when 'p1@plutto.test' then 'Ravi Kumar' when 'p3@plutto.test' then 'Meera' end,
+  case email when 'p1@plutto.test' then 'male' end
+from auth.users;
+create table public.orders (id serial primary key, user_id uuid references auth.users (id), name text);
+insert into public.orders (user_id, name) select id, 'Order for ' || email from auth.users;
+create table public.onboarding (uid uuid, nick text);
+insert into public.onboarding select id, 'Nick ' || split_part(email, '@', 1) from auth.users;
 \else
 create table public.orders (id serial primary key, total numeric, created_at timestamptz);
 create table public.members (member_id serial primary key, full_name text, email_address text, mobile text, joined_at bigint, last_seen_at timestamp);

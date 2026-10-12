@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { del, get, post, put } from "../../api";
 import { useApp } from "../../store";
-import type { AppUser, AppUsersPage, UserInspect, UserMapping, UserSource, UserTable } from "../../types";
+import type { AppUser, AppUsersPage, ProfileMap, UserInspect, UserMapping, UserSource, UserTable } from "../../types";
 import { cls } from "../../util";
 import { Refresh, Search, User } from "../../icons";
 import { Avatar, Button, Card, Empty, Field, Input, Pill, Segmented, Spinner } from "../../ui";
@@ -61,11 +61,26 @@ const FIELDS: { key: keyof Omit<UserMapping, "schema" | "table">; label: string;
   { key: "lastUsed", label: "Last used" },
 ];
 
+/** "profiles · full_name, gender", or with its schema when not public. */
+const whereNames = (p: ProfileMap) =>
+  `${p.schema === "public" ? "" : `${p.schema}.`}${p.table} · ${[[p.name, p.nameLast].filter(Boolean).join(" + "), p.gender].filter(Boolean).join(", ")}`;
+
+/** A first guess for a table picked by hand: its user-id column, name and gender. */
+function guessNames(t: UserTable): ProfileMap {
+  const cols = t.columns.map((c) => c.name);
+  const key = cols.find((c) => /^(user_?id|uid|user_?uuid|auth_?(user_?)?id|owner_?id)$/i.test(c))
+    ?? cols.find((c) => c === "id") ?? t.columns.find((c) => c.type === "uuid")?.name ?? cols[0] ?? "";
+  return { schema: t.schema, table: t.table, key, name: t.guess.name, gender: t.guess.gender };
+}
+
 function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Extract<UserSource, { connected: true }> | null; onDone: (users: number) => void; onCancel?: () => void }) {
   const [url, setUrl] = useState("");
   const [found, setFound] = useState<UserInspect | null>(null);
   const [kind, setKind] = useState<"supabase" | "table">(saved?.kind ?? "supabase");
   const [map, setMap] = useState<UserMapping | null>(saved?.mapping ?? null);
+  // Supabase: where the names come from. null = found automatically.
+  const [names, setNames] = useState<ProfileMap | null>(saved?.profile ?? null);
+  const namesTable: UserTable | undefined = found?.tables.find((t) => names && t.schema === names.schema && t.table === names.table);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const table: UserTable | undefined = found?.tables.find((t) => map && t.schema === map.schema && t.table === map.table);
@@ -85,7 +100,7 @@ function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Ext
   const save = async () => {
     setBusy("save"); setError("");
     try {
-      const r = await put<{ users: number }>(`${app.base}/source`, { ...(url.trim() ? { url } : {}), kind, ...(kind === "table" ? { mapping: map } : {}) });
+      const r = await put<{ users: number }>(`${app.base}/source`, { ...(url.trim() ? { url } : {}), kind, ...(kind === "table" ? { mapping: map } : { profile: names }) });
       onDone(r.users);
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }
@@ -120,12 +135,47 @@ function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Ext
               </Field>
             )}
             {kind === "supabase" ? (
-              <p className="field-hint">
-                Every account in <span className="mono">auth.users</span>: email or phone, the provider it signs in with, when it was made, and the last sign-in or session refresh. Deleted accounts are left out.{" "}
-                {found.profile
-                  ? <>{found.profile.name && found.profile.gender ? "The name and gender" : found.profile.name ? "The name" : "The gender"} your app saved in <span className="mono">public.profiles</span> {found.profile.name ? "come first; the name Google or Apple sent fills in where the app has none." : "show beside each user."}</>
-                  : <>Names are the ones Google, Apple or the sign-up form sent.</>}
-              </p>
+              <>
+                <p className="field-hint">Every account in <span className="mono">auth.users</span>: email or phone, the provider it signs in with, when it was made, and the last sign-in or session refresh. Deleted accounts are left out.</p>
+                <div className="users-names">
+                  <span className="mini-label">Names and gender</span>
+                  {!names ? (
+                    <p className="field-hint">
+                      {found.profile
+                        ? <>From <span className="mono">{whereNames(found.profile)}</span>, what the app saved at onboarding; where it has none, the name Google or Apple sent.</>
+                        : <>No table of names was found, so names are the ones Google, Apple or the sign-up form sent. If the app saves names at onboarding, pick where.</>}
+                      {" "}{found.tables.length > 0 && <Button size="sm" variant="ghost" onClick={() => setNames(found.profile ?? guessNames(found.tables[0]!))}>{found.profile ? "Pick another table" : "Pick the table"}</Button>}
+                    </p>
+                  ) : (
+                    <>
+                      <div className="users-map">
+                        <Field label="Table" hint="Where the app saves what it asks at onboarding.">
+                          <select className="input select" value={`${names.schema}.${names.table}`} onChange={(e) => {
+                            const t = found.tables.find((x) => `${x.schema}.${x.table}` === e.target.value);
+                            if (t) setNames(guessNames(t));
+                          }}>
+                            {found.tables.map((t) => <option key={`${t.schema}.${t.table}`} value={`${t.schema}.${t.table}`}>{t.schema === "public" ? t.table : `${t.schema}.${t.table}`}</option>)}
+                          </select>
+                        </Field>
+                        {namesTable && ([
+                          ["key", "User id", "The column with the user's id from sign-in."],
+                          ["name", "Name", undefined],
+                          ["nameLast", "Last name", "Only if the name is split in two."],
+                          ["gender", "Gender", undefined],
+                        ] as const).map(([k, label, hint]) => (
+                          <Field key={k} label={label} hint={hint}>
+                            <select className="input select" value={names[k] ?? ""} onChange={(e) => setNames({ ...names, [k]: e.target.value || (k === "key" ? "" : undefined) })}>
+                              {k !== "key" && <option value="">— none —</option>}
+                              {namesTable.columns.map((c) => <option key={c.name} value={c.name}>{c.name} · {c.type}</option>)}
+                            </select>
+                          </Field>
+                        ))}
+                      </div>
+                      <p className="field-hint"><Button size="sm" variant="ghost" onClick={() => setNames(null)}>Find it automatically</Button></p>
+                    </>
+                  )}
+                </div>
+              </>
             ) : found.tables.length === 0 ? (
               <p className="field-hint">This login can't see any tables. Grant it read access to the users table, then look again.</p>
             ) : (
@@ -156,7 +206,7 @@ function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Ext
             <div className="form-foot">
               <Button variant="ghost" onClick={() => setFound(null)}>Back</Button>
               <Button variant="primary" busy={busy === "save"} onClick={save}
-                disabled={kind === "table" && !(map && (map.email || map.phone))}>Connect</Button>
+                disabled={kind === "table" ? !(map && (map.email || map.phone)) : !!names && !(names.key && (names.name || names.gender))}>Connect</Button>
             </div>
           </div>
         </Card>

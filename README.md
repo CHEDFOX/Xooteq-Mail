@@ -394,10 +394,16 @@ project (Tailzu): the project's **Connect** button → **Session pooler** (the
 direct host is IPv6-only, which the VPS may not reach), with the database
 password filled in. Xooteq recognises Supabase and reads `auth.users`: email or
 phone, the provider, created, and last used (the later of the last sign-in and
-the last session refresh). The name and gender come from the app's own
-`public.profiles` when it has them (Tailzu's `full_name` and `gender`, keyed by
-`user_id`; a `profiles.id` key works too), and the name falls back to the one
-Google, Apple or the sign-up form sent. Deleted accounts
+the last session refresh). The name and gender come first from wherever the app
+saves what it asks at onboarding, and the name falls back to the one Google,
+Apple or the sign-up form sent (`full_name`, `name`, `given_name` + `family_name`
+and the other usual keys). That table is found by itself: any table linked to
+`auth.users` by a foreign key (one row per user), or `public.profiles` / `users`
+by `user_id` or `id`, with a name column such as `full_name`, `displayName`,
+`name` or first + last name, and `gender`. Tailzu's is `public.profiles`
+(`full_name`, `gender`). The Connect screen shows what it found; **Pick another
+table** chooses the table, its user-id column and its name and gender columns
+by hand, for an app that keeps them somewhere unusual. Deleted accounts
 are left out. Any other Postgres works too: pick the table, and map which column
 is the name, gender, email, phone, account created and last used (guessed from
 the column names; dates may be timestamps or epoch seconds/ms).
@@ -446,9 +452,9 @@ cd dashboard && npm install
 npm run dev          # the server, on :5200 (needs a Stalwart; see .env names in server/config.ts)
 npm run dev:web      # the web app with hot reload, on :5173
 npm test             # unit tests
-# the Users tab against a real Postgres (two databases from test/users-fixture.sql):
-#   createdb sb && createdb plain
-#   psql -d sb -v which=sb -f test/users-fixture.sql && psql -d plain -v which=plain -f test/users-fixture.sql
+# the Users tab against a real Postgres (three databases from test/users-fixture.sql):
+#   createdb sb && createdb sb2 && createdb plain
+#   for w in sb sb2 plain; do psql -d $w -v which=$w -f test/users-fixture.sql; done
 #   XM_TEST_PG=postgresql://postgres@localhost:5432/postgres npm test
 npm run typecheck
 XM_EMAIL=… XM_PASSWORD=… python3 test/e2e.py   # end to end against a local Stalwart

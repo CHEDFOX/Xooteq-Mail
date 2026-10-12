@@ -1128,6 +1128,8 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* An app's Users tab: its own database's users, as a table. */
 .users-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px 14px; }
+.users-names { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line-2); }
+.users-names .field-hint { margin: 0; }
 .users-search { gap: 8px; color: var(--ink-3); }
 .users-search .input { width: 260px; }
 .user-row {

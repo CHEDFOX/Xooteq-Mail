@@ -1,7 +1,7 @@
 // An app's Users tab. The parts that need no database always run; the rest run
 // against a real Postgres when XM_TEST_PG names one (postgresql://user@host:port),
-// with two databases on it: "sb", shaped like a Supabase project's auth schema,
-// and "plain", an app's own members table: test/users-fixture.sql makes both.
+// with three databases on it: "sb" and "sb2", shaped like Supabase projects,
+// and "plain", an app's own members table: test/users-fixture.sql makes them.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
@@ -75,7 +75,7 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     const r = await call("POST", `${at}/inspect`, { url: url("sb") });
     assert.equal(r.status, 200);
     assert.equal(r.body.supabase, true);
-    assert.deepEqual(r.body.profile, { name: true, gender: true });   // public.profiles: full_name, gender
+    assert.deepEqual(r.body.profile, { schema: "public", table: "profiles", key: "user_id", name: "full_name", gender: "gender" });
     const names = r.body.tables.map((x: { schema: string; table: string }) => `${x.schema}.${x.table}`);
     assert.ok(names.includes("public.profiles"));
     assert.ok(!names.some((n: string) => n.startsWith("storage.") || n.startsWith("auth.")));
@@ -205,6 +205,37 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.equal((await call("DELETE", `${at}/source`)).status, 200);
     assert.deepEqual((await call("GET", `${at}/source`)).body, { connected: false });
     assert.equal((await call("GET", "/api/sending/apps/NOT_OK/users/source")).status, 404);
+  });
+
+  await t.test("another app's names are found where it keeps them, or picked by hand", async () => {
+    const i = await call("POST", `${at}/inspect`, { url: url("sb2") });
+    assert.equal(i.status, 200, JSON.stringify(i.body));
+    assert.deepEqual(i.body.profile, { schema: "public", table: "app_users", key: "user_ref", name: "displayName", gender: "sex" });
+    const c = await call("PUT", `${at}/source`, { url: url("sb2"), kind: "supabase" });
+    assert.equal(c.status, 200, JSON.stringify(c.body));
+    assert.equal(c.body.profile, null);                 // found, not picked
+    const r = await call("GET", at);
+    const by = (e: string) => r.body.users.find((u: { email: string }) => u.email === e);
+    assert.equal(by("p1@plutto.test").name, "Ravi Kumar");
+    assert.equal(by("p1@plutto.test").gender, "male");
+    assert.equal(by("p2@plutto.test").name, "Given Family");   // none in the app: Google's given + family name
+    assert.equal(by("p3@plutto.test").name, "Meera");
+    assert.equal(by("p4@plutto.test").name, null);
+    assert.doesNotMatch(JSON.stringify(r.body), /Order for/);   // an order's "name" is not a person's
+
+    const picked = { schema: "public", table: "onboarding", key: "uid", name: "nick" };
+    const p = await call("PUT", `${at}/source`, { kind: "supabase", profile: picked });
+    assert.equal(p.status, 200, JSON.stringify(p.body));
+    assert.deepEqual((await call("GET", `${at}/source`)).body.profile, picked);
+    const r2 = await call("GET", at);
+    assert.equal(r2.body.users.find((u: { email: string }) => u.email === "p4@plutto.test").name, "Nick p4");
+    assert.deepEqual(r2.body.fields, { gender: false });
+    const bad = await call("PUT", `${at}/source`, { kind: "supabase", profile: { ...picked, name: "nope" } });
+    assert.equal(bad.status, 400);
+    assert.match(bad.body.error, /no column "nope"/);
+    assert.equal((await call("PUT", `${at}/source`, { kind: "supabase", profile: null })).status, 200);   // back to automatic
+    assert.equal((await call("GET", `${at}/source`)).body.profile, null);
+    assert.equal((await call("DELETE", `${at}/source`)).status, 200);
   });
 
   await t.test("a company has its own Users tab, apart from an app with the same id", async () => {

@@ -162,7 +162,7 @@ const pick = (cols: string[], ...patterns: RegExp[]) => {
 export function guessMapping(schema: string, table: string, cols: string[]): Mapping {
   return {
     schema, table,
-    name: pick(cols, /^(full_?name|display_?name)$/i, /^name$/i, /^(user_?name|username)$/i, /^first_?name$/i),
+    name: pick(cols, ...NAME_FULL, NAME_FIRST),
     email: pick(cols, /^e?-?mail$/i, /^email_?address$/i, /email/i),
     phone: pick(cols, /^phone(_?number)?$/i, /^mobile(_?number)?$/i, /phone|mobile/i),
     gender: pick(cols, /^(gender|sex)$/i),
@@ -184,40 +184,130 @@ async function supabaseColumns(c: pg.PoolClient): Promise<{ users: Set<string>; 
 const supabaseUsable = (cols: Set<string>) => cols.has("id") && cols.has("created_at") && (cols.has("email") || cols.has("phone"));
 
 /**
- * A Supabase project's own profiles table, joined to auth.users: the name and
- * gender the APP asked for. Google and Apple often send no name (Apple sends it
- * once, if at all), so the one the person typed in the app comes first and the
- * provider's fills in. Keyed by user_id (Tailzu's), or by id (Supabase's own
- * starter). Only the columns this login may read are used.
+ * WHERE A SUPABASE APP KEEPS THE NAME IT ASKED FOR. Google and Apple often send
+ * no name (Apple once, if at all), so the one typed at onboarding comes first
+ * and the provider's fills in. Apps keep it in different places — Tailzu in
+ * public.profiles (user_id, full_name, gender), Supabase's starter in
+ * profiles.id, others in public.users or a table of their own — so it is found
+ * (findProfile) or picked once on the Connect screen and saved with the source.
  */
-interface Profile { key: string; keyIsUuid: boolean; cols: string[]; name: string | null; gender: string | null }
+export interface ProfileMap { schema: string; table: string; key: string; name?: string; nameLast?: string; gender?: string }
 
-async function supabaseProfile(c: pg.PoolClient): Promise<Profile | null> {
-  const r = await c.query<{ column_name: string; data_type: string }>(
-    `select column_name, data_type from information_schema.columns where table_schema = 'public' and table_name = 'profiles'`);
-  const types = new Map(r.rows.map((x) => [x.column_name, x.data_type]));
-  const key = types.has("user_id") ? "user_id" : types.has("id") ? "id" : null;
-  if (!key) return null;
-  const all = [...types.keys()].filter((k) => k !== key);
-  const full = pick(all, /^(full_?name|display_?name)$/i, /^name$/i, /^(user_?name|username)$/i);
-  const first = full ? undefined : pick(all, /^first_?name$/i);
-  const last = first ? pick(all, /^last_?name$/i) : undefined;
-  const gender = pick(all, /^(gender|sex)$/i);
+interface Profile { map: ProfileMap; keyIsUuid: boolean; name: string | null; gender: string | null }
+
+const NAME_FULL = [/^(full_?name|display_?name)$/i, /^name$/i, /^(user_?name|nick_?name|preferred_?name)$/i];
+const NAME_FIRST = /^(first_?name|given_?name)$/i;
+const NAME_LAST = /^(last_?name|family_?name|surname)$/i;
+const GENDER = /^(gender|sex)$/i;
+
+/** Columns a login can read in some tables, as schema.table → column → type. */
+async function visibleColumns(c: pg.PoolClient, tables: { schema: string; table: string }[]): Promise<Map<string, Map<string, string>>> {
+  const out = new Map<string, Map<string, string>>();
+  if (!tables.length) return out;
+  const r = await c.query<{ table_schema: string; table_name: string; column_name: string; data_type: string }>(
+    `select table_schema, table_name, column_name, data_type from information_schema.columns
+      where (table_schema, table_name) in (select * from unnest($1::text[], $2::text[]))`,
+    [tables.map((t) => t.schema), tables.map((t) => t.table)]);
+  for (const x of r.rows) {
+    const k = `${x.table_schema}.${x.table_name}`;
+    if (!out.has(k)) out.set(k, new Map());
+    out.get(k)!.set(x.column_name, x.data_type);
+  }
+  return out;
+}
+
+/** The SQL for a profile map, given the columns this login can read in its table. */
+function profileExprs(map: ProfileMap, types: Map<string, string>): Profile | null {
+  const has = (k?: string) => (k && types.has(k) ? k : undefined);
+  if (!has(map.key)) return null;
   const col = (k: string) => `nullif(btrim(p.${ident(k)}::text), '')`;
-  const name = full ? col(full) : first ? `nullif(concat_ws(' ', ${col(first)}, ${last ? col(last) : "null"}), '')` : null;
-  if (!name && !gender) return null;
-  return {
-    key, keyIsUuid: types.get(key) === "uuid",
-    cols: [full, first, last, gender].filter((x): x is string => !!x),
-    name, gender: gender ? col(gender) : null,
+  const name = has(map.name), last = has(map.nameLast), gender = has(map.gender);
+  const nameSql = name && last ? `nullif(concat_ws(' ', ${col(name)}, ${col(last)}), '')` : name ? col(name) : null;
+  if (!nameSql && !gender) return null;
+  return { map: { schema: map.schema, table: map.table, key: map.key, name, nameLast: last, gender }, keyIsUuid: types.get(map.key) === "uuid", name: nameSql, gender: gender ? col(gender) : null };
+}
+
+/** A first guess at a table's name, last name and gender columns. */
+function guessProfile(schema: string, table: string, key: string, types: Map<string, string>): ProfileMap {
+  const cols = [...types.keys()].filter((k) => k !== key);
+  const full = pick(cols, ...NAME_FULL);
+  const first = full ? undefined : pick(cols, NAME_FIRST);
+  return { schema, table, key, name: full ?? first, nameLast: first ? pick(cols, NAME_LAST) : undefined, gender: pick(cols, GENDER) };
+}
+
+const PROFILE_TABLE = /^(profiles?|user_?profiles?|users?|app_?users?|accounts?|members?|customers?|people|persons?)$/i;
+
+/**
+ * The table where the app keeps its users' names, found: every table whose one
+ * column points at auth.users (a foreign key), plus the usual ones even without
+ * one (public.profiles by user_id or id, public.users by id). The usual names
+ * are tried first; any other table must hold one row per user (that column is
+ * unique), so an orders table with a product "name" is never taken for one. The
+ * first with a name column wins; failing that, the first with a gender.
+ */
+async function findProfile(c: pg.PoolClient): Promise<Profile | null> {
+  const fk = await c.query<{ schema: string; table: string; column: string; uniq: boolean }>(
+    `select n.nspname as schema, cl.relname as table, a.attname as column,
+            exists (select 1 from pg_index i where i.indrelid = k.conrelid and i.indisunique
+                      and i.indnkeyatts = 1 and i.indkey[0] = k.conkey[1]) as uniq
+       from pg_constraint k
+       join pg_class cl on cl.oid = k.conrelid
+       join pg_namespace n on n.oid = cl.relnamespace
+       join pg_attribute a on a.attrelid = k.conrelid and a.attnum = k.conkey[1]
+      where k.contype = 'f' and k.confrelid = to_regclass('auth.users') and cardinality(k.conkey) = 1
+        and n.nspname <> all($1)`, [SYSTEM_SCHEMAS]);
+  const seen = new Set<string>();
+  const cands: { schema: string; table: string; key: string; usual: boolean; uniq: boolean }[] = [];
+  const add = (schema: string, table: string, key: string, uniq: boolean) => {
+    const k = `${schema}.${table}.${key}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    cands.push({ schema, table, key, usual: PROFILE_TABLE.test(table), uniq });
   };
+  for (const x of fk.rows) add(x.schema, x.table, x.column, x.uniq);
+  add("public", "profiles", "user_id", true); add("public", "profiles", "id", true);
+  add("public", "users", "id", true); add("public", "user_profiles", "user_id", true);
+  const usable = cands.filter((x) => x.usual || x.uniq)
+    .sort((a, b) => Number(b.usual) - Number(a.usual) || Number(b.schema === "public") - Number(a.schema === "public"));
+  const cols = await visibleColumns(c, usable);
+  let withGender: Profile | null = null;
+  for (const x of usable) {
+    const types = cols.get(`${x.schema}.${x.table}`);
+    if (!types) continue;
+    const prof = profileExprs(guessProfile(x.schema, x.table, x.key, types), types);
+    if (prof?.name) return prof;
+    if (prof?.gender && !withGender) withGender = prof;
+  }
+  return withGender;
+}
+
+/** A profile map picked on the Connect screen, checked against the database. */
+async function pickedProfile(c: pg.PoolClient, map: ProfileMap): Promise<Profile> {
+  const types = (await visibleColumns(c, [map])).get(`${map.schema}.${map.table}`);
+  if (!types) throw new UsersError(`${map.schema}.${map.table} isn't there, or this login can't read it.`);
+  for (const [k, label] of [["key", "the user id"], ["name", "the name"], ["nameLast", "the last name"], ["gender", "gender"]] as const) {
+    const v = map[k];
+    if (v && !types.has(v)) throw new UsersError(`${map.table} has no column "${v}" for ${label}.`);
+  }
+  const prof = profileExprs(map, types);
+  if (!prof) throw new UsersError("Pick the column with the name (or the gender).");
+  return prof;
+}
+
+function cleanProfile(m: unknown): ProfileMap | null {
+  if (!m || typeof m !== "object") return null;
+  const x = m as Record<string, unknown>;
+  const s = (k: string) => (typeof x[k] === "string" && (x[k] as string).trim() ? (x[k] as string).trim().slice(0, 63) : undefined);
+  const schema = s("schema"), table = s("table"), key = s("key");
+  if (!schema || !table || !key) throw new UsersError("Pick the table with the names, and the column that holds the user's id.");
+  return { schema, table, key, name: s("name"), nameLast: s("nameLast"), gender: s("gender") };
 }
 
 /** What a connection can read: Supabase's users, and the app's own tables. */
-export async function inspect(url: string): Promise<{ hint: string; supabase: boolean; profile: { name: boolean; gender: boolean } | null; tables: TableInfo[] }> {
+export async function inspect(url: string): Promise<{ hint: string; supabase: boolean; profile: ProfileMap | null; tables: TableInfo[] }> {
   return withUrl(url, (pool) => readOnly(pool, async (c) => {
     const sb = await supabaseColumns(c);
-    const prof = supabaseUsable(sb.users) ? await supabaseProfile(c) : null;
+    const prof = supabaseUsable(sb.users) ? await findProfile(c) : null;
     const r = await c.query<{ table_schema: string; table_name: string; column_name: string; data_type: string }>(
       `select c.table_schema, c.table_name, c.column_name, c.data_type
          from information_schema.columns c
@@ -241,7 +331,7 @@ export async function inspect(url: string): Promise<{ hint: string; supabase: bo
     // The likeliest user tables first: users, profiles, accounts…, then the rest.
     const likely = (t: TableInfo) => /^(users?|profiles?|accounts?|customers?|members?|app_users?)$/i.test(t.table) ? 0 : t.guess.email || t.guess.phone ? 1 : 2;
     tables.sort((a, b) => likely(a) - likely(b));
-    return { hint: hintOf(url), supabase: supabaseUsable(sb.users), profile: prof && { name: !!prof.name, gender: !!prof.gender }, tables };
+    return { hint: hintOf(url), supabase: supabaseUsable(sb.users), profile: prof?.map ?? null, tables };
   }));
 }
 
@@ -258,12 +348,16 @@ function asTime(col: string, type: string): string {
 
 /** The SELECT every list and count reads from (name, gender, email, phone,
  *  provider, created_at, last_used), and whether it has a gender to show. */
-async function baseQuery(c: pg.PoolClient, kind: Kind, map: Mapping | null): Promise<{ sql: string; gender: boolean }> {
+async function baseQuery(c: pg.PoolClient, kind: Kind, map: Mapping | null, picked: ProfileMap | null = null): Promise<{ sql: string; gender: boolean }> {
   if (kind === "supabase") {
     const { users: u, sessions: s } = await supabaseColumns(c);
     if (!supabaseUsable(u)) throw new UsersError("This login can't read auth.users any more.", 502);
+    // The name the provider or the sign-up form sent, under any of the usual keys.
+    const m = (k: string) => `nullif(btrim(u.raw_user_meta_data->>'${k}'), '')`;
+    const pair = (a: string, b: string) => `nullif(concat_ws(' ', ${m(a)}, ${m(b)}), '')`;
     const meta = u.has("raw_user_meta_data")
-      ? `coalesce(${["full_name", "name", "display_name", "user_name"].map((k) => `nullif(u.raw_user_meta_data->>'${k}', '')`).join(", ")})`
+      ? `coalesce(${["full_name", "name", "display_name", "fullName", "displayName", "user_name", "nickname", "preferred_username"].map(m).join(", ")},
+          ${pair("first_name", "last_name")}, ${pair("given_name", "family_name")}, ${pair("firstName", "lastName")})`
       : "null";
     const provider = [
       u.has("is_anonymous") ? "case when u.is_anonymous then 'anonymous' end" : null,
@@ -275,12 +369,13 @@ async function baseQuery(c: pg.PoolClient, kind: Kind, map: Mapping | null): Pro
       ? `max(${s.has("refreshed_at") && s.has("updated_at") ? "coalesce(refreshed_at, updated_at)" : s.has("refreshed_at") ? "refreshed_at" : "updated_at"})`
       : null;
     const lastSignIn = u.has("last_sign_in_at") ? "u.last_sign_in_at" : "null::timestamptz";
-    const prof = await supabaseProfile(c);
+    const prof = picked ? await pickedProfile(c, picked) : await findProfile(c);
     const name = prof?.name ? (meta === "null" ? prof.name : `coalesce(${prof.name}, ${meta})`) : meta;
     // At most one profile per user, whatever the table's keys say.
     const join = prof
-      ? `left join lateral (select ${prof.cols.map(ident).join(", ")} from public.profiles pp
-           where pp.${ident(prof.key)}${prof.keyIsUuid ? "" : "::text"} = u.id${prof.keyIsUuid ? "" : "::text"} limit 1) p on true`
+      ? `left join lateral (select ${[prof.map.name, prof.map.nameLast, prof.map.gender].filter((x): x is string => !!x).map(ident).join(", ")}
+           from ${ident(prof.map.schema)}.${ident(prof.map.table)} pp
+           where pp.${ident(prof.map.key)}${prof.keyIsUuid ? "" : "::text"} = u.id${prof.keyIsUuid ? "" : "::text"} limit 1) p on true`
       : "";
     return { gender: !!prof?.gender, sql: `select ${name}::text as name,
         ${prof?.gender ?? "null"}::text as gender,
@@ -368,7 +463,14 @@ function row(appId: string): Row | undefined {
 export function sourceOf(appId: string) {
   const r = row(appId);
   if (!r) return { connected: false as const };
-  return { connected: true as const, kind: r.kind, hint: r.url_hint, mapping: r.kind === "table" ? json<Mapping | null>(r.mapping, null) : null, updatedAt: r.updated_at };
+  const saved = json<Record<string, unknown>>(r.mapping, {});
+  return {
+    connected: true as const, kind: r.kind, hint: r.url_hint,
+    mapping: r.kind === "table" ? (saved as unknown as Mapping) : null,
+    /** Supabase: where the names come from when picked by hand; null means found automatically. */
+    profile: r.kind === "supabase" ? ((saved.profile as ProfileMap | undefined) ?? null) : null,
+    updatedAt: r.updated_at,
+  };
 }
 
 /** The saved connection string, for re-inspecting without pasting it again. */
@@ -387,17 +489,18 @@ function cleanMapping(m: unknown): Mapping {
 }
 
 /** Saves the source once a first page has actually been read through it. */
-export async function connect(appId: string, input: { url?: string; kind?: string; mapping?: unknown }) {
+export async function connect(appId: string, input: { url?: string; kind?: string; mapping?: unknown; profile?: unknown }) {
   const url = input.url?.trim() || (row(appId) ? savedUrl(appId) : "");
   if (!url) throw new UsersError("Paste the database's connection string.");
   const kind: Kind = input.kind === "table" ? "table" : "supabase";
   const map = kind === "table" ? cleanMapping(input.mapping) : null;
-  const sample = await withUrl(url, (pool) => readOnly(pool, async (c) => readPage(c, await baseQuery(c, kind, map), { page: 1 })));
+  const picked = kind === "supabase" ? cleanProfile(input.profile) : null;
+  const sample = await withUrl(url, (pool) => readOnly(pool, async (c) => readPage(c, await baseQuery(c, kind, map, picked), { page: 1 })));
   const t = now();
   db.prepare(`INSERT INTO app_user_sources (app_id, url_enc, url_hint, kind, mapping, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(app_id) DO UPDATE SET url_enc = excluded.url_enc, url_hint = excluded.url_hint, kind = excluded.kind,
       mapping = excluded.mapping, updated_at = excluded.updated_at`)
-    .run(appId, seal(url), hintOf(url), kind, JSON.stringify(map ?? {}), t, t);
+    .run(appId, seal(url), hintOf(url), kind, JSON.stringify(map ?? (picked ? { profile: picked } : {})), t, t);
   dropPool(appId);
   return { ...sourceOf(appId), users: sample.counts.total };
 }
@@ -410,7 +513,9 @@ export function disconnect(appId: string): void {
 export async function listUsers(appId: string, opts: { q?: string; sort?: Sort; page?: number }): Promise<Page> {
   const r = row(appId);
   if (!r) throw new UsersError("This app has no database connected.", 404);
-  const map = r.kind === "table" ? json<Mapping | null>(r.mapping, null) : null;
+  const saved = json<Record<string, unknown>>(r.mapping, {});
+  const map = r.kind === "table" ? (saved as unknown as Mapping) : null;
+  const picked = r.kind === "supabase" ? ((saved.profile as ProfileMap | undefined) ?? null) : null;
   const pool = poolFor(appId, open(r.url_enc), r.updated_at);
-  return readOnly(pool, async (c) => readPage(c, await baseQuery(c, r.kind, map), opts));
+  return readOnly(pool, async (c) => readPage(c, await baseQuery(c, r.kind, map, picked), opts));
 }
