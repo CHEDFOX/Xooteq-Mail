@@ -1,17 +1,19 @@
-// An app's Users tab: the people who use it, read from its own database —
+// A Users tab (on each Sending app and each company): the people who use the
+// product, read from its own database —
 // a Supabase project's sign-ins, or any table mapped once. Name, how they sign
 // in (email or phone), when the account was made and when it was last used.
 // Xooteq only reads; the connection string never comes back to the page.
 import { useCallback, useEffect, useState } from "react";
 import { del, get, post, put } from "../../api";
 import { useApp } from "../../store";
-import type { AppUser, AppUsersPage, SendApp, UserInspect, UserMapping, UserSource, UserTable } from "../../types";
+import type { AppUser, AppUsersPage, UserInspect, UserMapping, UserSource, UserTable } from "../../types";
 import { cls } from "../../util";
 import { Refresh, Search, User } from "../../icons";
 import { Avatar, Button, Card, Empty, Field, Input, Pill, Segmented, Spinner } from "../../ui";
 import { PageHead } from "./Settings";
 
-const base = (app: string) => `/api/sending/apps/${encodeURIComponent(app)}/users`;
+/** Whose users: a Sending app or a company, and where its Users API is. */
+export type UsersOwner = { name: string; base: string };
 const n = (v?: number) => (v ?? 0).toLocaleString();
 
 /** Supabase keeps phone numbers as digits only; people read them with a +. */
@@ -29,11 +31,11 @@ function ago(iso: string): string {
 }
 const PROVIDER: Record<string, string> = { email: "Email", phone: "Phone", google: "Google", apple: "Apple", github: "GitHub", anonymous: "Guest" };
 
-export function AppUsers({ app }: { app: SendApp }) {
+export function AppUsers({ app }: { app: UsersOwner }) {
   const { toast } = useApp();
   const [src, setSrc] = useState<UserSource | null>(null);
   const [editing, setEditing] = useState(false);
-  const load = useCallback(() => get<UserSource>(`${base(app.id)}/source`).then(setSrc).catch((e) => toast({ text: (e as Error).message, tone: "error" })), [app.id, toast]);
+  const load = useCallback(() => get<UserSource>(`${app.base}/source`).then(setSrc).catch((e) => toast({ text: (e as Error).message, tone: "error" })), [app.base, toast]);
   useEffect(() => { load(); }, [load]);
   if (!src) return <div className="center-pad"><Spinner /></div>;
   if (!src.connected || editing) {
@@ -43,7 +45,7 @@ export function AppUsers({ app }: { app: SendApp }) {
   }
   return <UserList app={app} src={src} onChange={() => setEditing(true)} onDisconnect={async () => {
     if (!confirm(`Disconnect ${app.name}'s database? Nothing in the database changes; Xooteq forgets the connection.`)) return;
-    try { await del(`${base(app.id)}/source`); toast({ text: "Disconnected." }); load(); }
+    try { await del(`${app.base}/source`); toast({ text: "Disconnected." }); load(); }
     catch (e) { toast({ text: (e as Error).message, tone: "error" }); }
   }} />;
 }
@@ -58,7 +60,7 @@ const FIELDS: { key: keyof Omit<UserMapping, "schema" | "table">; label: string;
   { key: "lastUsed", label: "Last used" },
 ];
 
-function Connect({ app, saved, onDone, onCancel }: { app: SendApp; saved: Extract<UserSource, { connected: true }> | null; onDone: (users: number) => void; onCancel?: () => void }) {
+function Connect({ app, saved, onDone, onCancel }: { app: UsersOwner; saved: Extract<UserSource, { connected: true }> | null; onDone: (users: number) => void; onCancel?: () => void }) {
   const [url, setUrl] = useState("");
   const [found, setFound] = useState<UserInspect | null>(null);
   const [kind, setKind] = useState<"supabase" | "table">(saved?.kind ?? "supabase");
@@ -70,7 +72,7 @@ function Connect({ app, saved, onDone, onCancel }: { app: SendApp; saved: Extrac
   const look = async () => {
     setBusy("look"); setError("");
     try {
-      const r = await post<UserInspect>(`${base(app.id)}/inspect`, url.trim() ? { url } : {});
+      const r = await post<UserInspect>(`${app.base}/inspect`, url.trim() ? { url } : {});
       setFound(r);
       const k = saved && !url.trim() ? saved.kind : r.supabase ? "supabase" : "table";
       setKind(k);
@@ -82,7 +84,7 @@ function Connect({ app, saved, onDone, onCancel }: { app: SendApp; saved: Extrac
   const save = async () => {
     setBusy("save"); setError("");
     try {
-      const r = await put<{ users: number }>(`${base(app.id)}/source`, { ...(url.trim() ? { url } : {}), kind, ...(kind === "table" ? { mapping: map } : {}) });
+      const r = await put<{ users: number }>(`${app.base}/source`, { ...(url.trim() ? { url } : {}), kind, ...(kind === "table" ? { mapping: map } : {}) });
       onDone(r.users);
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }
@@ -161,7 +163,7 @@ function Connect({ app, saved, onDone, onCancel }: { app: SendApp; saved: Extrac
 
 type Sort = "created" | "used" | "name";
 
-function UserList({ app, src, onChange, onDisconnect }: { app: SendApp; src: Extract<UserSource, { connected: true }>; onChange: () => void; onDisconnect: () => void }) {
+function UserList({ app, src, onChange, onDisconnect }: { app: UsersOwner; src: Extract<UserSource, { connected: true }>; onChange: () => void; onDisconnect: () => void }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<Sort>("created");
   const [page, setPage] = useState(1);
@@ -170,8 +172,8 @@ function UserList({ app, src, onChange, onDisconnect }: { app: SendApp; src: Ext
   const load = useCallback(() => {
     setData(null); setError("");
     const p = new URLSearchParams({ sort, page: String(page), ...(q ? { q } : {}) });
-    get<AppUsersPage>(`${base(app.id)}?${p}`).then(setData).catch((e) => setError((e as Error).message));
-  }, [app.id, q, sort, page]);
+    get<AppUsersPage>(`${app.base}?${p}`).then(setData).catch((e) => setError((e as Error).message));
+  }, [app.base, q, sort, page]);
   useEffect(() => { load(); }, [load]);
   const from = src.kind === "supabase" ? "Supabase sign-ins" : src.mapping ? `${src.mapping.schema === "public" ? "" : `${src.mapping.schema}.`}${src.mapping.table}` : "a table";
 

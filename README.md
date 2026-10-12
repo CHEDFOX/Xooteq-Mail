@@ -387,7 +387,9 @@ admin at `https://postal.mail.xooteq.online`.
 
 #### Users: connecting an app's database
 
-An app's **Users** tab takes a Postgres connection string once. For a Supabase
+The **Users** tab is on each company (Settings → the company → **Users**, beside
+Addresses) and on each Sending app; each keeps its own connection. It takes a
+Postgres connection string once. For a Supabase
 project (Tailzu): the project's **Connect** button → **Session pooler** (the
 direct host is IPv6-only, which the VPS may not reach), with the database
 password filled in. Xooteq recognises Supabase and reads `auth.users`: the name

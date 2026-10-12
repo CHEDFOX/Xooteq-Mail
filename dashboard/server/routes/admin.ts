@@ -8,6 +8,7 @@ import {
 } from "../companies.ts";
 import { domains } from "../stalwart.ts";
 import { check, expected } from "../dns.ts";
+import { disconnect } from "../appUsers.ts";
 
 const cid = (req: FastifyRequest) => (req.params as { cid: string }).cid;
 
@@ -21,6 +22,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.delete("/api/companies/:cid", async (req) => {
     getCompany(cid(req));
     forgetCompany(cid(req));
+    disconnect(`company:${cid(req)}`);
     return { ok: true };
   });
   app.post("/api/companies/:cid/sync", async (req) => syncAddresses(cid(req)));

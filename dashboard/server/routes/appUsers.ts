@@ -1,44 +1,56 @@
-// An app's Users tab: connect its database, map its users table, read the list.
-// These are the dashboard's own routes (not postal-bridge's), under the app's
-// Sending path; Fastify prefers them to sending.ts's wildcard.
+// The Users tab: connect a database, map its users table, read the list. It is
+// on each Sending app (under its Sending path; Fastify prefers these routes to
+// sending.ts's wildcard) and on each company. A company's connection is kept
+// under "company:<id>", so a company and an app with the same id never share one.
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { requireOwner } from "../auth.ts";
+import { getCompany } from "../companies.ts";
 import { connect, disconnect, inspect, listUsers, savedUrl, sourceOf, type Sort, UsersError } from "../appUsers.ts";
 
-type P = { Params: { app: string } };
-
-/** A Postal app's permalink, the same pattern sending.ts allows. */
-function appOf(req: FastifyRequest<P>): string {
-  const id = req.params.app;
-  if (!/^[a-z0-9-]{1,80}$/.test(id)) throw new UsersError("Not found.", 404);
+/** A Postal app's permalink or a company's id: the same lowercase slug. */
+const slug = (id: string | undefined): string => {
+  if (!id || !/^[a-z0-9-]{1,80}$/.test(id)) throw new UsersError("Not found.", 404);
   return id;
-}
+};
+
+const OWNERS: { at: string; key: (req: FastifyRequest) => string }[] = [
+  { at: "/api/sending/apps/:app/users", key: (req) => slug((req.params as { app?: string }).app) },
+  {
+    at: "/api/companies/:cid/users",
+    key: (req) => {
+      const id = slug((req.params as { cid?: string }).cid);
+      getCompany(id);
+      return `company:${id}`;
+    },
+  },
+];
 
 export async function appUserRoutes(app: FastifyInstance) {
   app.addHook("preHandler", requireOwner);
-  const at = "/api/sending/apps/:app/users";
+  for (const { at, key } of OWNERS) {
+    app.get(`${at}/source`, async (req) => sourceOf(key(req)));
 
-  app.get<P>(`${at}/source`, async (req) => sourceOf(appOf(req)));
+    // What a connection string can read. Without one, the saved connection's.
+    app.post(`${at}/inspect`, async (req) => {
+      const id = key(req);
+      const body = (req.body ?? {}) as { url?: unknown };
+      return inspect(typeof body.url === "string" && body.url.trim() ? body.url : savedUrl(id));
+    });
 
-  // What a connection string can read. Without one, the saved connection's.
-  app.post<P & { Body: { url?: string } }>(`${at}/inspect`, async (req) => {
-    const id = appOf(req);
-    const url = typeof req.body?.url === "string" && req.body.url.trim() ? req.body.url : savedUrl(id);
-    return inspect(url);
-  });
+    app.put(`${at}/source`, async (req) => {
+      const b = (req.body ?? {}) as { url?: unknown; kind?: string; mapping?: unknown };
+      return connect(key(req), { url: typeof b.url === "string" ? b.url : undefined, kind: b.kind, mapping: b.mapping });
+    });
 
-  app.put<P & { Body: { url?: string; kind?: string; mapping?: unknown } }>(`${at}/source`, async (req) => {
-    const b = req.body ?? {};
-    return connect(appOf(req), { url: typeof b.url === "string" ? b.url : undefined, kind: b.kind, mapping: b.mapping });
-  });
+    app.delete(`${at}/source`, async (req) => {
+      disconnect(key(req));
+      return { ok: true };
+    });
 
-  app.delete<P>(`${at}/source`, async (req) => {
-    disconnect(appOf(req));
-    return { ok: true };
-  });
-
-  app.get<P & { Querystring: { q?: string; sort?: string; page?: string } }>(at, async (req) => {
-    const sort: Sort = req.query.sort === "used" || req.query.sort === "name" ? req.query.sort : "created";
-    return listUsers(appOf(req), { q: req.query.q, sort, page: Number(req.query.page) || 1 });
-  });
+    app.get(at, async (req) => {
+      const q = req.query as { q?: string; sort?: string; page?: string };
+      const sort: Sort = q.sort === "used" || q.sort === "name" ? q.sort : "created";
+      return listUsers(key(req), { q: q.q, sort, page: Number(q.page) || 1 });
+    });
+  }
 }

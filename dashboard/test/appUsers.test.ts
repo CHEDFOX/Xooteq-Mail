@@ -159,8 +159,12 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     const m1 = r.body.users[0];
     assert.equal(m1.name, "Member 1");
     assert.equal(m1.phone, "+44 7700 900001");
-    const age = Date.now() - Date.parse(m1.createdAt);
-    assert.ok(Math.abs(age - 3 * 86_400_000) < 120_000, `member 1 joined ${m1.createdAt}`);
+    // Epoch milliseconds read as dates: member n joined 3n days before the fixture was made.
+    const m2 = r.body.users[1];
+    assert.equal(m2.name, "Member 2");
+    const gap = Date.parse(m1.createdAt) - Date.parse(m2.createdAt);
+    assert.ok(Math.abs(gap - 3 * 86_400_000) < 2_000, `member 1 ${m1.createdAt}, member 2 ${m2.createdAt}`);
+    assert.ok(Date.now() - Date.parse(m1.createdAt) >= 3 * 86_400_000 - 2_000);
   });
 
   await t.test("the saved connection can be re-mapped without pasting it again", async () => {
@@ -191,6 +195,20 @@ test("against a real Postgres", { skip: !PG && "XM_TEST_PG not set" }, async (t)
     assert.equal((await call("DELETE", `${at}/source`)).status, 200);
     assert.deepEqual((await call("GET", `${at}/source`)).body, { connected: false });
     assert.equal((await call("GET", "/api/sending/apps/NOT_OK/users/source")).status, 404);
+  });
+
+  await t.test("a company has its own Users tab, apart from an app with the same id", async () => {
+    db.prepare(`INSERT INTO companies (id, name, domain, local, account_id, color, created_at)
+      VALUES ('tailzu', 'Tailzu', 'tailzu.space', 'hello', 'acc1', '#119977', 0)`).run();
+    const co = "/api/companies/tailzu/users";
+    assert.deepEqual((await call("GET", `${co}/source`)).body, { connected: false });
+    const c = await call("PUT", `${co}/source`, { url: url("sb"), kind: "supabase" });
+    assert.equal(c.status, 200, JSON.stringify(c.body));
+    assert.equal((await call("GET", co)).body.total, 119);
+    assert.deepEqual((await call("GET", `${at}/source`)).body, { connected: false });   // the Sending app "tailzu" is untouched
+    const none = await call("GET", "/api/companies/nobody/users/source");
+    assert.equal(none.status, 400);
+    assert.match(none.body.error, /No such company/);
   });
 
   await app.close();

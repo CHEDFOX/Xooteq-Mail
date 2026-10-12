@@ -142,7 +142,7 @@ export function SendingApp({ id, tab }: { id: string; tab: string }) {
           </a>
         ))}
       </nav>
-      {tab === "users" ? <AppUsers app={s} />
+      {tab === "users" ? <AppUsers app={{ name: s.name, base: `${base(s.id)}/users` }} />
         : tab === "messages" ? <Messages app={s} />
         : tab === "domains" ? <Domains app={s} onChange={load} />
         : tab === "keys" ? <Keys app={s} onChange={load} />
