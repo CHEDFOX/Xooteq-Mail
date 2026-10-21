@@ -1121,6 +1121,28 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .send-domain .card-title { display: flex; align-items: center; gap: 10px; }
 .send-domain .card-actions { display: flex; gap: 6px; align-items: center; }
 .tab-count { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: var(--warn-soft); color: var(--warn); font-size: 11px; font-weight: 700; }
+
+/* Contact forms: the plug a site posts to (Forms.tsx). */
+.addr.is-off .addr-main { opacity: 0.6; }
+.form-endpoint { display: flex; align-items: center; gap: 4px; margin-top: 5px; }
+.form-endpoint code {
+  padding: 3px 8px; border-radius: 7px; background: var(--sunken); border: 1px solid var(--line-2);
+  font-size: 12px; max-width: 100%; overflow-x: auto; white-space: nowrap; scrollbar-width: none;
+}
+.form-code {
+  margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line-2);
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6; white-space: pre; overflow-x: auto; tab-size: 2;
+}
+.form-more { align-self: flex-start; font-size: 13px; font-weight: 600; color: var(--brand); text-decoration: underline; text-underline-offset: 2px; }
+.subs { display: flex; flex-direction: column; gap: 10px; }
+.sub { padding: 12px 14px; border-radius: 11px; background: var(--panel-2); border: 1px solid var(--line-2); }
+.sub-top { display: flex; align-items: center; gap: 10px; }
+.sub-when { color: var(--ink-3); font-size: 12.5px; }
+.sub-page { color: var(--ink-4); font-size: 11.5px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-fields { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.sub-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; font-size: 13px; align-items: start; }
+.sub-field > span:first-child { color: var(--ink-3); font-size: 12px; }
+.sub-field > span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 720px) {
   .send-row { grid-template-columns: 84px minmax(0, 1fr) auto; }
   .send-row-from { display: none; }
@@ -1247,6 +1269,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   .preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .addr-ctl { width: 100%; justify-content: space-between; }
   .dns-field { grid-template-columns: minmax(0, 1fr) auto; }
+  .sub-field { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .dns-field .mini-label { grid-column: 1 / -1; }
   .run { grid-template-columns: 10px minmax(0, 1fr) auto; }
   .run-to, .run-time { display: none; }

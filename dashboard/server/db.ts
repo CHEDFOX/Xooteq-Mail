@@ -56,6 +56,21 @@ const migrations: string[] = [
   `CREATE TABLE app_user_sources (
      app_id TEXT PRIMARY KEY, url_enc TEXT NOT NULL, url_hint TEXT NOT NULL, kind TEXT NOT NULL,
      mapping TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);`,
+  // A site's contact form, plugged into one of a company's addresses (forms.ts).
+  // The row is the whole form; the forms service's sites.json is written from it.
+  `CREATE TABLE forms (
+     id INTEGER PRIMARY KEY,
+     company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+     address_id INTEGER NOT NULL REFERENCES addresses(id) ON DELETE CASCADE,
+     name TEXT NOT NULL, key TEXT NOT NULL UNIQUE,
+     app_id TEXT NOT NULL, app_name TEXT NOT NULL DEFAULT '',
+     key_enc TEXT NOT NULL, key_hint TEXT NOT NULL,
+     subject TEXT NOT NULL DEFAULT '', origins TEXT NOT NULL DEFAULT '[]',
+     redirect TEXT NOT NULL DEFAULT '', autoreply TEXT,
+     per_minute INTEGER NOT NULL DEFAULT 5, per_day INTEGER NOT NULL DEFAULT 200,
+     admin_token TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+   CREATE INDEX forms_company ON forms(company_id);`,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");

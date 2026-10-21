@@ -9,6 +9,7 @@ import {
 import { domains } from "../stalwart.ts";
 import { check, expected } from "../dns.ts";
 import { disconnect } from "../appUsers.ts";
+import { syncSites } from "../forms.ts";
 
 const cid = (req: FastifyRequest) => (req.params as { cid: string }).cid;
 
@@ -23,14 +24,25 @@ export async function adminRoutes(app: FastifyInstance) {
     getCompany(cid(req));
     forgetCompany(cid(req));
     disconnect(`company:${cid(req)}`);
+    // Its contact forms went with it (the database cascades); the forms service
+    // is told, so their endpoints stop answering.
+    syncSites();
     return { ok: true };
   });
   app.post("/api/companies/:cid/sync", async (req) => syncAddresses(cid(req)));
 
   app.post("/api/companies/:cid/addresses", async (req) => addAddress(cid(req), (req.body ?? {}) as Parameters<typeof addAddress>[1]));
-  app.patch("/api/companies/:cid/addresses/:aid", async (req) =>
-    updateAddress(cid(req), Number((req.params as { aid: string }).aid), (req.body ?? {}) as Record<string, unknown>));
-  app.delete("/api/companies/:cid/addresses/:aid", async (req) => removeAddress(cid(req), Number((req.params as { aid: string }).aid)));
+  app.patch("/api/companies/:cid/addresses/:aid", async (req) => {
+    const c = await updateAddress(cid(req), Number((req.params as { aid: string }).aid), (req.body ?? {}) as Record<string, unknown>);
+    // The sender name a form's mail goes out with lives on the address.
+    syncSites();
+    return c;
+  });
+  app.delete("/api/companies/:cid/addresses/:aid", async (req) => {
+    const c = await removeAddress(cid(req), Number((req.params as { aid: string }).aid));
+    syncSites();
+    return c;
+  });
 
   app.get("/api/companies/:cid/rules", async (req) => listRules(cid(req)));
   app.put("/api/companies/:cid/rules", async (req) => saveRules(cid(req), (req.body as { rules?: unknown })?.rules));

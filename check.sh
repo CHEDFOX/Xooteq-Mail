@@ -65,6 +65,12 @@ if [ -n "${STALWART_ADMIN_SECRET:-}" ]; then
       fail "Sending not connected (docker compose logs postal-bridge)"
     fi
   fi
+  # The forms the dashboard writes for the forms service (a company > Forms).
+  if (cd /opt/postal 2>/dev/null && docker compose exec -T dashboard sh -c '[ -w /forms-config ] && [ -w /forms-config/sites.json ]' 2>/dev/null); then
+    pass "the dashboard can write the forms service's sites.json"
+  else
+    fail "the dashboard cannot write /forms-config/sites.json (run workspace-setup.sh again)"
+  fi
   code=$(curl -s -o /dev/null -w '%{http_code}' "https://$D/" || true)
   [ "$code" = "200" ] && pass "https://$D answers (Xooteq Mail)" || fail "https://$D gave ${code:-nothing} (nginx-dashboard.conf + certbot)"
 fi

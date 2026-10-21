@@ -10,6 +10,7 @@ import { StalwartError } from "./stalwart.ts";
 import { AiError } from "./ai/providers.ts";
 import { PostalError } from "./postal.ts";
 import { sendingRoutes } from "./routes/sending.ts";
+import { formRoutes } from "./routes/forms.ts";
 import { appUserRoutes } from "./routes/appUsers.ts";
 import { UsersError } from "./appUsers.ts";
 import { authRoutes } from "./routes/auth.ts";
@@ -107,6 +108,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(adminRoutes);
   await app.register(aiRoutes);
   await app.register(hookRoutes);
+  await app.register(formRoutes);
   await app.register(sendingRoutes);
   await app.register(appUserRoutes);
 

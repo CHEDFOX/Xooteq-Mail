@@ -29,7 +29,7 @@ xooteq-mail/
   nginx-postal.conf      the dashboard behind the VPS's existing nginx
   certbot-hook.sh        hands renewed certificates to the SMTP server
   .env.example           the few values to fill in
-  dashboard/             Xooteq Mail: the inbox, companies, rules, AI replies, sending
+  dashboard/             Xooteq Mail: the inbox, companies, forms, rules, AI replies, sending
   postal-bridge/         lets the dashboard run Postal (apps, keys, domains, message log)
   engine.py              sets up and configures Stalwart (the mailboxes)
   workspace-setup.sh     installs or updates Stalwart and Xooteq Mail
@@ -207,8 +207,16 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d forms.xooteq.online
 ```
 
-**Per site:** an entry in `/opt/postal/forms/sites.json` (the example is in
-`forms/sites.example.json`):
+**Per form, in Xooteq Mail** (the usual way: Settings → the company → **Forms**
+→ *Connect a form*). See *Forms: any site's form on any address*, below. The
+dashboard writes `/opt/postal/forms/config/sites.json` from what you fill in,
+and the service re-reads it at once; it also adds the company's domain to a
+sending app in Postal and makes the API key the form sends with.
+
+**Per site, by hand** — for a form that is not one of the dashboard's companies:
+another entry in `/opt/postal/forms/config/sites.json` (the example is in
+`forms/sites.example.json`). The dashboard keeps entries it did not make; those
+it did carry `"managed_by": "xooteq-mail"` and are rewritten from its database.
 
 | Field | Meaning |
 |---|---|
@@ -225,7 +233,8 @@ sudo certbot --nginx -d forms.xooteq.online
 
 The service re-reads the file when it changes; no restart.
 
-**In the site**, a plain form:
+**In the site**, a plain form (the Forms tab gives this, filled in, with a copy
+button):
 
 ```html
 <form action="https://forms.xooteq.online/s/tz_8f3a1c2e9b7d4a6f" method="post">
@@ -259,8 +268,9 @@ ignored.
 
 Everything Google Workspace or Zoho did for a domain, here: real mailboxes, an
 inbox in the browser, addresses that each get their own folder (`support@`,
-`contact@`, `billing@` …), rules, auto-replies, and replies written by AI in each
-company's voice with any AI key. Mail apps (phone, Outlook, Apple Mail) work too.
+`contact@`, `billing@` …), a site's contact form plugged into any of them, rules,
+auto-replies, and replies written by AI in each company's voice with any AI key.
+Mail apps (phone, Outlook, Apple Mail) work too.
 
 Two parts, both started by `workspace-setup.sh`:
 
@@ -330,6 +340,46 @@ copy button and a live check. Mail starts arriving once the MX is there.
    ```
    Run it again just before cancelling the old plan, to catch the last mail.
 4. Cancel the old plan.
+
+### Forms: any site's form on any address
+
+Settings → the company → **Forms** → *Connect a form*. Name the form, pick which
+of the company's addresses it delivers to (`contact@`, `support@`, a campaign
+address — any alias), say which sites may post to it, and that is the whole
+setup. Nothing to host, no third party, no key to paste into the site.
+
+Connecting one does the rest by itself: the company's domain is added as a
+sending domain on one of Postal's apps (Settings → **Sending**; a new app named
+after the company if there is none), an **API** key is made for the forms
+service if the app has none, and the form is written into the service's
+`sites.json`, which it re-reads at once.
+
+What it gives back, with copy buttons:
+
+- the address the site posts to, `https://forms.<company domain>/s/<key>`;
+- a **plain form** to paste into the page, honeypot and all;
+- the same **from a script**, which gets JSON back and stays on the page.
+
+Per form you can also set:
+
+| | |
+|---|---|
+| **Messages arrive at** | Any address of the company. It is filed in that address's folder, and answered from it. |
+| **Sites allowed to post** | `https://tailzu.space`, or `*.tailzu.space` for every subdomain. Empty allows any site. |
+| **Subject of the mail** | `Message from {name}`: any field in braces. |
+| **After sending, go to** | A thank-you page, for a plain form. Without it, a small "sent" page. |
+| **Answer the visitor** | An immediate reply to the address they gave, from the same address, `{name}` and all. |
+| **Limits** | Most per visitor a minute, most a day. Above them the site gets a clear refusal. |
+| **Sent through** | Which Sending app's domain and key send it. Picked for you. |
+
+Each form in the list has a switch (off answers the site "No such form"),
+**Submissions** (everything the form received, mail or no mail, read back from
+the server), and **Send a test**, which posts through the form exactly as a
+browser would and lands in the address — the fastest way to see the whole path
+work. Removing a form stops the site's form at once; mail already received stays.
+
+If the domain's DKIM or SPF record for Postal is missing, the tab says so and
+links to the records.
 
 ### AI replies
 

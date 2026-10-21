@@ -9,6 +9,9 @@ function env(name: string, fallback?: string): string {
   throw new Error(`${name} is not set (the platform's .env, see workspace-setup.sh)`);
 }
 
+/** mail.xooteq.online -> xooteq.online: the domain the platform's own names hang off. */
+const parentDomain = (d: string) => (d.split(".").length > 2 ? d.split(".").slice(1).join(".") : d);
+
 const mailDomain = env("MAIL_DOMAIN", "mail.example.com");
 
 export const config = {
@@ -30,6 +33,12 @@ export const config = {
   /** postal-bridge, Postal's side of the dashboard (Sending), on the private network. */
   postalBridgeUrl: env("POSTAL_BRIDGE_URL", "http://postal-bridge:5010").replace(/\/+$/, ""),
   postalBridgeSecret: env("POSTAL_BRIDGE_SECRET", ""),
+  /** The contact-form service (forms/): the sites file the dashboard writes and
+   *  it re-reads, where it answers on the private network, and the address the
+   *  sites' forms post to (forms.<company domain>, the one nginx serves). */
+  formsSitesFile: env("FORMS_SITES_FILE", ""),
+  formsUrl: env("FORMS_URL", "http://forms:5100").replace(/\/+$/, ""),
+  formsPublicUrl: env("FORMS_PUBLIC_URL", `https://forms.${parentDomain(mailDomain)}`).replace(/\/+$/, ""),
   /** Built web app (vite build); absent in development, where vite serves it. */
   webDir: env("WEB_DIR", path.resolve("web/dist")),
   /** Cookies get Secure unless explicitly running on plain http (development). */

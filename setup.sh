@@ -62,13 +62,21 @@ fi
 cp docker-compose.yml mariadb-init.sql certbot-hook.sh "$P/"
 cp .env "$P/.env"; chmod 600 "$P/.env"
 chmod +x "$P/certbot-hook.sh"
-# The forms service: its code, and a sites.json to fill in (kept if there).
+# The forms service: its code, and the directory holding its sites.json. Xooteq
+# Mail writes that file (each company's Forms tab), so the directory belongs to
+# the dashboard container's user; the forms service only reads it.
 mkdir -p "$P/forms"
 cp forms/server.mjs forms/lib.mjs forms/Dockerfile "$P/forms/"
-if [ ! -f "$P/forms/sites.json" ]; then
-  cp forms/sites.example.json "$P/forms/sites.json"; chmod 644 "$P/forms/sites.json"   # read by the container's own user
-  echo "made $P/forms/sites.json from the example: put real keys in it (README, Forms)"
+install -d -m 775 -o 1000 -g 1000 "$P/forms/config"
+if [ -f "$P/forms/sites.json" ] && [ ! -f "$P/forms/config/sites.json" ]; then
+  mv "$P/forms/sites.json" "$P/forms/config/sites.json"   # from before the dashboard wrote it
+  echo "moved sites.json into $P/forms/config/"
 fi
+if [ ! -f "$P/forms/config/sites.json" ]; then
+  echo '{ "sites": {} }' > "$P/forms/config/sites.json"
+  echo "made $P/forms/config/sites.json: add forms in Xooteq Mail (a company > Forms), or by hand (README, Forms)"
+fi
+chown 1000:1000 "$P/forms/config/sites.json"; chmod 664 "$P/forms/config/sites.json"
 cd "$P"
 
 docker compose pull -q

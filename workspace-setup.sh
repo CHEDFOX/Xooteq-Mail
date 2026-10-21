@@ -49,6 +49,15 @@ chmod +x "$P/certbot-hook.sh"
 rm -rf "$P/dashboard" && cp -r dashboard "$P/dashboard"
 rm -rf "$P/postal-bridge" && cp -r postal-bridge "$P/postal-bridge"
 cp .env "$P/.env" && chmod 600 "$P/.env"
+# The contact forms the dashboard writes for the forms service (a company >
+# Forms): its directory, owned by the dashboard container's user.
+install -d -m 775 -o 1000 -g 1000 "$P/forms/config"
+if [ -f "$P/forms/sites.json" ] && [ ! -f "$P/forms/config/sites.json" ]; then
+  mv "$P/forms/sites.json" "$P/forms/config/sites.json"
+  echo "moved sites.json into $P/forms/config/ (the dashboard writes it now)"
+fi
+[ -f "$P/forms/config/sites.json" ] || echo '{ "sites": {} }' > "$P/forms/config/sites.json"
+chown 1000:1000 "$P/forms/config/sites.json"; chmod 664 "$P/forms/config/sites.json"
 # nginx's site for the dashboard, filled in (README, Xooteq Mail).
 sed "s/MAIL_DOMAIN/$MAIL_DOMAIN/g; s/127\.0\.0\.1:5200/127.0.0.1:$DASHBOARD_PORT/g" nginx-dashboard.conf > "$P/nginx-xooteq-mail.conf"
 
@@ -81,8 +90,10 @@ fi
 ENV_FILE="$REPO/.env" STALWART_LOCAL_URL=$STALWART_LOCAL python3 "$P/engine.py" configure
 cp "$REPO/.env" "$P/.env"
 
-# 7. Postal's side of the dashboard (Settings > Sending), restarted for new code.
+# 7. Postal's side of the dashboard (Settings > Sending), restarted for new code,
+#    and the forms service, so it reads the sites directory the dashboard writes.
 docker compose up -d --force-recreate postal-bridge
+docker compose up -d --force-recreate forms
 
 # 8. Xooteq Mail.
 docker compose build -q dashboard

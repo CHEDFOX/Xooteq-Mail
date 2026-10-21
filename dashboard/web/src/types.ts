@@ -93,6 +93,26 @@ export type SendMessage = {
 };
 export type SendPage<T> = { page: number; totalPages: number; total: number } & T;
 
+// ---- Contact forms (server/forms.ts, the forms service) ----
+export type FormAuto = { subject: string; text: string };
+export type ContactForm = {
+  id: number; name: string; addressId: number; email: string; label: string;
+  /** The public id in the URL, and the whole address a site's form posts to. */
+  key: string; endpoint: string;
+  appId: string; appName: string; keyHint: string;
+  origins: string[]; redirect: string; subject: string; autoreply: FormAuto | null;
+  limits: { perMinute: number; perDay: number }; enabled: boolean; createdAt: number; updatedAt: number;
+};
+export type FormsPage = { ready: boolean; endpointBase: string; domain: string; forms: ContactForm[] };
+export type FormSending = {
+  apps: { id: string; name: string; mode: string; domain: SendDomain | null }[];
+  suggested: string; domain: string; companyName: string;
+};
+export type FormSubmission = {
+  id: string; at: string; status: string; ip?: string; page?: string; agent?: string;
+  fields: Record<string, string>; reason?: string; message_id?: string;
+};
+
 // An app's Users tab: its own database's users (server/appUsers.ts).
 export type UserMapping = { schema: string; table: string; name?: string; email?: string; phone?: string; gender?: string; created?: string; onboarded?: string; lastUsed?: string };
 /** Where a Supabase app keeps the names (and gender) it collects: a table, its user-id column, and its columns. */

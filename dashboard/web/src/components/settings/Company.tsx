@@ -1,6 +1,7 @@
-// One company: its addresses (each with a folder, auto-reply and AI mode), its
-// product's users (AppUsers.tsx), rules, AI voice, DNS, access from mail apps,
-// and its name and colour.
+// One company: its addresses (each with a folder, auto-reply and AI mode), the
+// contact forms plugged into them (Forms.tsx), its product's users
+// (AppUsers.tsx), rules, AI voice, DNS, access from mail apps, and its name and
+// colour.
 import { useCallback, useEffect, useState } from "react";
 import { del, get, patch, post } from "../../api";
 import { go, href, onNav } from "../../router";
@@ -14,11 +15,13 @@ import { COLORS } from "./Companies";
 import { Rules } from "./Rules";
 import { AiProfile } from "./Ai";
 import { AppUsers } from "./AppUsers";
+import { Forms } from "./Forms";
 
 export type FullCompany = Company & { rules: Rule[] };
 
 const TABS = [
   { id: "addresses", label: "Addresses" },
+  { id: "forms", label: "Forms" },
   { id: "users", label: "Users" },
   { id: "rules", label: "Rules" },
   { id: "ai", label: "AI replies" },
@@ -50,6 +53,7 @@ export function CompanySettings({ cid, tab }: { cid: string; tab: string }) {
         ))}
       </nav>
       {tab === "addresses" ? <Addresses c={c} onChange={setC} />
+        : tab === "forms" ? <Forms c={c} />
         : tab === "users" ? <AppUsers app={{ name: c.name, base: `/api/companies/${encodeURIComponent(c.id)}/users` }} />
         : tab === "rules" ? <Rules c={c} onSaved={(rules) => setC({ ...c, rules })} />
         : tab === "ai" ? <AiProfile c={c} />

@@ -94,12 +94,14 @@ services:
 
   # Contact forms: a site posts to https://forms.<domain>/s/<key>, the message
   # goes out through Postal to the inbox named in sites.json (README, Forms).
+  # Xooteq Mail writes that file (each company's Forms tab); the directory is
+  # shared with the dashboard, which is why it is a directory and not one file.
   forms:
     build: ./forms
     environment:
       POSTAL_API: http://web:5000
     volumes:
-      - /opt/postal/forms/sites.json:/config/sites.json:ro
+      - /opt/postal/forms/config:/config:ro
       - forms_data:/data
     ports:
       - "127.0.0.1:5100:5100"
@@ -148,13 +150,20 @@ services:
       VPS_IP: ${VPS_IP}
       POSTAL_BRIDGE_URL: http://postal-bridge:5010
       POSTAL_BRIDGE_SECRET: ${POSTAL_BRIDGE_SECRET:-}
+      # The forms service: the sites file the dashboard writes for it, where it
+      # answers on this network, and the address sites post to (nginx-forms.conf).
+      FORMS_SITES_FILE: /forms-config/sites.json
+      FORMS_URL: http://forms:5100
+      FORMS_PUBLIC_URL: ${FORMS_PUBLIC_URL:-}
       DATA_DIR: /data
     volumes:
       - dashboard_data:/data
+      - /opt/postal/forms/config:/forms-config
     ports:
       - "127.0.0.1:${DASHBOARD_PORT:-5200}:5200"
     depends_on:
       - stalwart
+      - forms
     restart: unless-stopped
     logging:
       driver: json-file

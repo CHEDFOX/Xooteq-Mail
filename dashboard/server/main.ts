@@ -2,6 +2,7 @@
 import { assertReady, config } from "./config.ts";
 import { buildApp } from "./app.ts";
 import { startScheduler } from "./ai/engine.ts";
+import { syncSites } from "./forms.ts";
 
 const missing = assertReady();
 if (missing.length) console.warn(`[xooteq-mail] not configured yet: ${missing.join(", ")}`);
@@ -9,6 +10,8 @@ if (missing.length) console.warn(`[xooteq-mail] not configured yet: ${missing.jo
 const app = await buildApp();
 await app.listen({ host: "0.0.0.0", port: config.port });
 startScheduler();
+// The contact-form service reads its sites from a file this writes.
+syncSites();
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
