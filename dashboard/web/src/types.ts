@@ -100,7 +100,10 @@ export type ContactForm = {
   /** The public id in the URL, and the whole address a site's form posts to. */
   key: string; endpoint: string;
   appId: string; appName: string; keyHint: string;
-  origins: string[]; redirect: string; subject: string; autoreply: FormAuto | null;
+  origins: string[];
+  /** Posts that carry no site address (a phone app, a desktop app, a server) are taken too. */
+  allowNoOrigin: boolean;
+  redirect: string; subject: string; autoreply: FormAuto | null;
   limits: { perMinute: number; perDay: number }; enabled: boolean; createdAt: number; updatedAt: number;
 };
 export type FormsPage = { ready: boolean; endpointBase: string; domain: string; forms: ContactForm[] };

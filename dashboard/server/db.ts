@@ -71,6 +71,9 @@ const migrations: string[] = [
      admin_token TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
    CREATE INDEX forms_company ON forms(company_id);`,
+  // A phone app, a desktop app or a server sends no site address, so a form one
+  // of them posts to says so: the service's allow_no_origin.
+  `ALTER TABLE forms ADD COLUMN allow_no_origin INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");

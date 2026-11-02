@@ -34,6 +34,15 @@ test("lets a site's own pages post, and nobody else's", () => {
   assert.equal(checkOrigin({ origins: [] }, null, null), true);
 });
 
+test("a phone app or a server sends no site address: only allow_no_origin lets it in", () => {
+  const site = { origins: ["https://tailzu.space"], allow_no_origin: true };
+  assert.equal(checkOrigin(site, null, null), true);
+  assert.equal(checkOrigin(site, undefined, undefined), true);
+  // Still only the named sites from a browser, apps allowed or not.
+  assert.equal(checkOrigin(site, "https://evil.example", null), false);
+  assert.equal(checkOrigin({ ...site, allow_no_origin: false }, null, null), false);
+});
+
 test("slows one address down and caps a site's day", () => {
   let t = 0;
   const rl = new RateLimit(() => t);

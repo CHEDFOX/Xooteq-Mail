@@ -225,6 +225,7 @@ it did carry `"managed_by": "xooteq-mail"` and are rewritten from its database.
 | `from` | The sender, on a domain verified in that app's Postal mail server. |
 | `postal_key` | An **API** credential of that mail server (dashboard → Credentials). |
 | `origins` | Sites allowed to post. `*.example.com` matches every subdomain. Empty allows all. |
+| `allow_no_origin` | `true` to take posts that carry no site address: a phone or desktop app, or your own server. |
 | `redirect` | Where a plain form post lands afterwards. Without it, a small "sent" page. |
 | `subject` | May use `{field}`: `Message from {name}`. |
 | `autoreply` | Optional `subject` and `text` sent to the visitor's `email`. |
@@ -341,12 +342,20 @@ copy button and a live check. Mail starts arriving once the MX is there.
    Run it again just before cancelling the old plan, to catch the last mail.
 4. Cancel the old plan.
 
-### Forms: any site's form on any address
+### Forms: any form, app or service on any address
 
 Settings → the company → **Forms** → *Connect a form*. Name the form, pick which
 of the company's addresses it delivers to (`contact@`, `support@`, a campaign
-address — any alias), say which sites may post to it, and that is the whole
-setup. Nothing to host, no third party, no key to paste into the site.
+address — any alias), say where the message is written, and that is the whole
+setup. Nothing to host, no third party, no key to paste in.
+
+A form here is just an address that takes a POST, so anything can write to it: a
+contact form on a web page, a **message card inside one of your apps** (iOS,
+Android, Flutter, React Native, desktop), a "report a problem" sheet, or your own
+backend. Send it as a form post or as JSON; every field becomes a labelled line
+in the mail, so an app can add whatever helps you answer — who was signed in, the
+screen, the app's version, an order number. When the message carries an `email`
+field, **Reply-To** is set to it, so one reply in the inbox answers the person.
 
 Connecting one does the rest by itself: the company's domain is added as a
 sending domain on one of Postal's apps (Settings → **Sending**; a new app named
@@ -356,9 +365,10 @@ service if the app has none, and the form is written into the service's
 
 What it gives back, with copy buttons:
 
-- the address the site posts to, `https://forms.<company domain>/s/<key>`;
-- a **plain form** to paste into the page, honeypot and all;
-- the same **from a script**, which gets JSON back and stays on the page.
+- the address to post to, `https://forms.<company domain>/s/<key>`;
+- the code for where the message is written, filled in with that address and
+  those fields: an **HTML form** (honeypot and all), **JavaScript / React
+  Native**, **Swift**, **Kotlin**, **Dart / Flutter**, or **curl** for a server.
 
 Per form you can also set:
 
@@ -366,17 +376,24 @@ Per form you can also set:
 |---|---|
 | **Messages arrive at** | Any address of the company. It is filed in that address's folder, and answered from it. |
 | **Sites allowed to post** | `https://tailzu.space`, or `*.tailzu.space` for every subdomain. Empty allows any site. |
+| **A message written in an app, or sent by a server** | Apps and servers send no site address, so the list above cannot be checked for them. Turn this on for an app's message card; listed sites are still the only ones allowed in a browser, and the limits below still hold. |
 | **Subject of the mail** | `Message from {name}`: any field in braces. |
 | **After sending, go to** | A thank-you page, for a plain form. Without it, a small "sent" page. |
 | **Answer the visitor** | An immediate reply to the address they gave, from the same address, `{name}` and all. |
 | **Limits** | Most per visitor a minute, most a day. Above them the site gets a clear refusal. |
 | **Sent through** | Which Sending app's domain and key send it. Picked for you. |
 
-Each form in the list has a switch (off answers the site "No such form"),
+An endpoint an app may post to can be found in the app's own code, so keep the
+limits in mind: they are what stands between the key and a flood of junk (by
+default 5 per minute per sender and 200 a day per form, both adjustable). The
+honeypot catches the simple bots, and every submission is recorded whether it was
+sent, refused or rate-limited.
+
+Each form in the list has a switch (off answers "No such form"),
 **Submissions** (everything the form received, mail or no mail, read back from
 the server), and **Send a test**, which posts through the form exactly as a
-browser would and lands in the address — the fastest way to see the whole path
-work. Removing a form stops the site's form at once; mail already received stays.
+browser or an app would and lands in the address — the fastest way to see the
+whole path work. Removing a form stops it at once; mail already received stays.
 
 If the domain's DKIM or SPF record for Postal is missing, the tab says so and
 links to the records.

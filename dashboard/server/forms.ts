@@ -39,6 +39,8 @@ export type Form = {
   appName: string;
   keyHint: string;
   origins: string[];
+  /** Whether a post that carries no site address (an app, a server) is taken. */
+  allowNoOrigin: boolean;
   redirect: string;
   subject: string;
   autoreply: AutoAnswer | null;
@@ -51,12 +53,13 @@ export type Form = {
 type Row = {
   id: number; company_id: string; address_id: number; name: string; key: string; app_id: string; app_name: string;
   key_enc: string; key_hint: string; subject: string; origins: string; redirect: string; autoreply: string | null;
-  per_minute: number; per_day: number; admin_token: string; enabled: number; created_at: number; updated_at: number;
+  per_minute: number; per_day: number; admin_token: string; enabled: number; allow_no_origin: number;
+  created_at: number; updated_at: number;
 };
 
 export type FormInput = {
-  name?: unknown; addressId?: unknown; appId?: unknown; origins?: unknown; redirect?: unknown;
-  subject?: unknown; autoreply?: unknown; limits?: unknown; enabled?: unknown;
+  name?: unknown; addressId?: unknown; appId?: unknown; origins?: unknown; allowNoOrigin?: unknown;
+  redirect?: unknown; subject?: unknown; autoreply?: unknown; limits?: unknown; enabled?: unknown;
 };
 
 // ---- what a form may say ---------------------------------------------------------------
@@ -137,7 +140,7 @@ function toForm(r: Row, c: Company): Form {
   return {
     id: r.id, name: r.name, addressId: r.address_id, email: a?.email ?? "", label: a?.label ?? "",
     key: r.key, endpoint: endpointOf(r.key), appId: r.app_id, appName: r.app_name || r.app_id, keyHint: r.key_hint,
-    origins: json<string[]>(r.origins, []), redirect: r.redirect, subject: r.subject,
+    origins: json<string[]>(r.origins, []), allowNoOrigin: !!r.allow_no_origin, redirect: r.redirect, subject: r.subject,
     autoreply: json<AutoAnswer | null>(r.autoreply, null), limits: { perMinute: r.per_minute, perDay: r.per_day },
     enabled: !!r.enabled, createdAt: r.created_at, updatedAt: r.updated_at,
   };
@@ -181,6 +184,7 @@ export async function createForm(companyId: string, input: FormInput): Promise<F
   if (!name) throw new InputError("Say what the form is, e.g. “Contact page”.");
   const address = addressOf(c, input.addressId);
   const origins = cleanOrigins(input.origins);
+  const allowNoOrigin = !!input.allowNoOrigin;
   const redirect = cleanRedirect(input.redirect);
   const subject = String(input.subject ?? "").trim().slice(0, 200) || `New message from {name}`;
   const autoreply = cleanAutoreply(input.autoreply);
@@ -190,10 +194,10 @@ export async function createForm(companyId: string, input: FormInput): Promise<F
   const id = tx(() => {
     const r = db.prepare(
       `INSERT INTO forms (company_id, address_id, name, key, app_id, app_name, key_enc, key_hint, subject, origins,
-         redirect, autoreply, per_minute, per_day, admin_token, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+         allow_no_origin, redirect, autoreply, per_minute, per_day, admin_token, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     ).run(companyId, address.id, name, newKey(companyId), sending.appId, sending.appName, seal(sending.key), keyHint(sending.key),
-      subject, JSON.stringify(origins), redirect, autoreply ? JSON.stringify(autoreply) : null,
+      subject, JSON.stringify(origins), allowNoOrigin ? 1 : 0, redirect, autoreply ? JSON.stringify(autoreply) : null,
       limits.perMinute, limits.perDay, crypto.randomBytes(24).toString("base64url"), now(), now());
     return Number(r.lastInsertRowid);
   });
@@ -212,6 +216,7 @@ export async function updateForm(companyId: string, id: number, patch: FormInput
   const name = patch.name !== undefined ? String(patch.name).trim().slice(0, 60) || before.name : before.name;
   const addressId = patch.addressId !== undefined ? addressOf(c, patch.addressId).id : before.address_id;
   const origins = patch.origins !== undefined ? cleanOrigins(patch.origins) : json<string[]>(before.origins, []);
+  const allowNoOrigin = patch.allowNoOrigin !== undefined ? !!patch.allowNoOrigin : !!before.allow_no_origin;
   const redirect = patch.redirect !== undefined ? cleanRedirect(patch.redirect) : before.redirect;
   const subject = patch.subject !== undefined ? String(patch.subject).trim().slice(0, 200) || before.subject : before.subject;
   const autoreply = patch.autoreply !== undefined ? cleanAutoreply(patch.autoreply) : json<AutoAnswer | null>(before.autoreply, null);
@@ -223,19 +228,19 @@ export async function updateForm(companyId: string, id: number, patch: FormInput
   const sending = patch.appId !== undefined && wantedApp !== before.app_id ? await ensureSending(c, wantedApp) : null;
 
   db.prepare(
-    `UPDATE forms SET name = ?, address_id = ?, subject = ?, origins = ?, redirect = ?, autoreply = ?,
+    `UPDATE forms SET name = ?, address_id = ?, subject = ?, origins = ?, allow_no_origin = ?, redirect = ?, autoreply = ?,
        per_minute = ?, per_day = ?, enabled = ?, updated_at = ?
          ${sending ? ", app_id = ?, app_name = ?, key_enc = ?, key_hint = ?" : ""} WHERE id = ?`,
-  ).run(name, addressId, subject, JSON.stringify(origins), redirect, autoreply ? JSON.stringify(autoreply) : null,
+  ).run(name, addressId, subject, JSON.stringify(origins), allowNoOrigin ? 1 : 0, redirect, autoreply ? JSON.stringify(autoreply) : null,
     limits.perMinute, limits.perDay, enabled ? 1 : 0, now(),
     ...(sending ? [sending.appId, sending.appName, seal(sending.key), keyHint(sending.key)] : []), id);
   try {
     writeSites();
   } catch (e) {
     db.prepare(
-      `UPDATE forms SET name = ?, address_id = ?, subject = ?, origins = ?, redirect = ?, autoreply = ?,
+      `UPDATE forms SET name = ?, address_id = ?, subject = ?, origins = ?, allow_no_origin = ?, redirect = ?, autoreply = ?,
          per_minute = ?, per_day = ?, enabled = ?, updated_at = ?, app_id = ?, app_name = ?, key_enc = ?, key_hint = ? WHERE id = ?`,
-    ).run(before.name, before.address_id, before.subject, before.origins, before.redirect, before.autoreply,
+    ).run(before.name, before.address_id, before.subject, before.origins, before.allow_no_origin, before.redirect, before.autoreply,
       before.per_minute, before.per_day, before.enabled, before.updated_at, before.app_id, before.app_name, before.key_enc, before.key_hint, id);
     throw e;
   }
@@ -324,6 +329,8 @@ function siteOf(row: Row, c: Company): { name: string; entry: SiteEntry } | null
     from: `${sender} <${a.email}>`,
     postal_key: open(row.key_enc),
     origins: json<string[]>(row.origins, []),
+    // An app or a server posts without a site address; the limits still hold.
+    allow_no_origin: !!row.allow_no_origin,
     subject: row.subject,
     admin_token: row.admin_token,
     limits: { perMinute: row.per_minute, perDay: row.per_day },
@@ -443,7 +450,8 @@ function sampleOrigin(origins: string[]): string | undefined {
 export async function testForm(companyId: string, id: number, from: string): Promise<{ ok: boolean; id?: string; error?: string }> {
   const row = rowOf(companyId, id);
   if (!row.enabled) throw new InputError("Turn the form on first.");
-  const origin = sampleOrigin(json<string[]>(row.origins, []));
+  // A form an app posts to is tested the way the app posts: with no site address.
+  const origin = row.allow_no_origin ? undefined : sampleOrigin(json<string[]>(row.origins, []));
   const out = (await askService("POST", `${config.formsUrl}/s/${row.key}`, {
     headers: { "content-type": "application/json", ...(origin ? { origin } : {}) },
     body: JSON.stringify({

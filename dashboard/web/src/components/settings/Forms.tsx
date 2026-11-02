@@ -1,6 +1,7 @@
 // A company's contact forms: one plug per form, pointed at any of its
-// addresses. Connecting one gives back the address a site posts to and the code
-// to paste into the site; from there the message arrives like any other mail.
+// addresses. Connecting one gives back the address to post to and the code to
+// paste wherever the message is written — a site's form, a card in a phone app,
+// a server — and from there it arrives like any other mail.
 import { useCallback, useEffect, useState } from "react";
 import { del, get, patch, post } from "../../api";
 import { href, onNav } from "../../router";
@@ -14,31 +15,118 @@ import type { FullCompany } from "./Company";
 
 const DEFAULT_SUBJECT = "New message from {name}";
 
-/** The four fields nearly every contact form has, plus the honeypot bots fill. */
-function htmlSnippet(f: ContactForm): string {
-  return [
-    `<form action="${f.endpoint}" method="post">`,
-    `  <input name="name" placeholder="Your name" required>`,
-    `  <input name="email" type="email" placeholder="Your email" required>`,
-    `  <textarea name="message" placeholder="How can we help?" required></textarea>`,
-    `  <!-- a person never sees this; a bot fills it and is ignored -->`,
-    `  <input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off">`,
-    ...(f.redirect ? [`  <input type="hidden" name="_redirect" value="${f.redirect}">`] : []),
-    `  <button type="submit">Send</button>`,
-    `</form>`,
-  ].join("\n");
-}
+/** Every field is sent along and becomes a line in the mail; these three are the
+ *  ones a message card always has. Anything else (the screen it was written on,
+ *  the app's version, who was signed in) is extra context in the same mail. */
+const SNIPPETS: { id: string; label: string; code: (f: ContactForm) => string }[] = [
+  {
+    id: "html",
+    label: "A form on a web page",
+    code: (f) => [
+      `<form action="${f.endpoint}" method="post">`,
+      `  <input name="name" placeholder="Your name" required>`,
+      `  <input name="email" type="email" placeholder="Your email" required>`,
+      `  <textarea name="message" placeholder="How can we help?" required></textarea>`,
+      `  <!-- a person never sees this; a bot fills it and is ignored -->`,
+      `  <input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off">`,
+      ...(f.redirect ? [`  <input type="hidden" name="_redirect" value="${f.redirect}">`] : []),
+      `  <button type="submit">Send</button>`,
+      `</form>`,
+    ].join("\n"),
+  },
+  {
+    id: "js",
+    label: "JavaScript, React or React Native",
+    code: (f) => [
+      `// The Send button of a message card.`,
+      `async function send({ name, email, message }) {`,
+      `  const res = await fetch("${f.endpoint}", {`,
+      `    method: "POST",`,
+      `    headers: { "content-type": "application/json" },`,
+      `    body: JSON.stringify({`,
+      `      name, email, message,`,
+      `      screen: "Help",          // any extra field becomes a line in the mail`,
+      `      app_version: "1.4.2",`,
+      `    }),`,
+      `  });`,
+      `  const { ok, error } = await res.json();`,
+      `  if (!ok) throw new Error(error);`,
+      `  return true;                 // on its way to ${f.email}`,
+      `}`,
+    ].join("\n"),
+  },
+  {
+    id: "swift",
+    label: "Swift, iOS",
+    code: (f) => [
+      `struct Message: Encodable {`,
+      `  let name: String, email: String, message: String`,
+      `  let screen: String, app_version: String`,
+      `}`,
+      ``,
+      `func send(_ m: Message) async throws -> Bool {`,
+      `  var req = URLRequest(url: URL(string: "${f.endpoint}")!)`,
+      `  req.httpMethod = "POST"`,
+      `  req.setValue("application/json", forHTTPHeaderField: "Content-Type")`,
+      `  req.httpBody = try JSONEncoder().encode(m)`,
+      `  let (data, _) = try await URLSession.shared.data(for: req)`,
+      `  let out = try JSONSerialization.jsonObject(with: data) as? [String: Any]`,
+      `  return out?["ok"] as? Bool ?? false   // true: on its way to ${f.email}`,
+      `}`,
+    ].join("\n"),
+  },
+  {
+    id: "kotlin",
+    label: "Kotlin, Android",
+    code: (f) => [
+      `// OkHttp; runs off the main thread (a coroutine on Dispatchers.IO).`,
+      `val payload = JSONObject(mapOf(`,
+      `  "name" to name, "email" to email, "message" to message,`,
+      `  "screen" to "Help", "app_version" to BuildConfig.VERSION_NAME,`,
+      `)).toString().toRequestBody("application/json".toMediaType())`,
+      ``,
+      `val res = OkHttpClient().newCall(`,
+      `  Request.Builder().url("${f.endpoint}").post(payload).build()`,
+      `).execute()`,
+      `val ok = JSONObject(res.body!!.string()).optBoolean("ok")   // on its way to ${f.email}`,
+    ].join("\n"),
+  },
+  {
+    id: "dart",
+    label: "Dart, Flutter",
+    code: (f) => [
+      `import "dart:convert";`,
+      `import "package:http/http.dart" as http;`,
+      ``,
+      `Future<bool> send(String name, String email, String message) async {`,
+      `  final res = await http.post(`,
+      `    Uri.parse("${f.endpoint}"),`,
+      `    headers: {"content-type": "application/json"},`,
+      `    body: jsonEncode({`,
+      `      "name": name, "email": email, "message": message,`,
+      `      "screen": "Help", "app_version": "1.4.2",`,
+      `    }),`,
+      `  );`,
+      `  return jsonDecode(res.body)["ok"] == true;   // on its way to ${f.email}`,
+      `}`,
+    ].join("\n"),
+  },
+  {
+    id: "curl",
+    label: "A server, or curl",
+    code: (f) => [
+      `curl -s ${f.endpoint} \\`,
+      `  -H 'content-type: application/json' \\`,
+      `  -d '{"name":"Ada","email":"ada@example.com","message":"Is the blue one in stock?"}'`,
+      `# {"ok":true,"id":"…"} — on its way to ${f.email}`,
+    ].join("\n"),
+  },
+];
 
-function jsSnippet(f: ContactForm): string {
-  return [
-    `const res = await fetch("${f.endpoint}", {`,
-    `  method: "POST",`,
-    `  headers: { "content-type": "application/json" },`,
-    `  body: JSON.stringify({ name, email, message }),`,
-    `});`,
-    `const { ok, error } = await res.json();`,
-    `// ok: the message is on its way to ${f.email}`,
-  ].join("\n");
+/** Who may post to a form, in a few words. */
+function posters(f: ContactForm): string {
+  if (!f.origins.length) return f.allowNoOrigin ? "any site or app may post" : "any site may post";
+  return f.origins.join(", ") + (f.allowNoOrigin ? ", and apps" : "");
 }
 
 export function Forms({ c }: { c: FullCompany }) {
@@ -85,7 +173,7 @@ export function Forms({ c }: { c: FullCompany }) {
   return (
     <>
       <PageHead title="Forms"
-        sub={<>Put any site's contact form on one of {c.name}'s addresses. The visitor's message arrives in that address's folder, and one reply answers them.</>}
+        sub={<>Point any message people write at one of {c.name}'s addresses: a site's contact form, a card in the app, anything your own code posts. It arrives in that address's folder, and one reply answers them.</>}
         actions={<Button variant="primary" icon={<Plus size={16} />} disabled={!page.ready} onClick={() => setEditing("new")}>Connect a form</Button>} />
 
       {!page.ready && (
@@ -109,7 +197,7 @@ export function Forms({ c }: { c: FullCompany }) {
         <Card>
           <Empty icon={<FileText size={22} />} title="No forms yet"
             action={<Button variant="primary" disabled={!page.ready} onClick={() => setEditing("new")}>Connect a form</Button>}>
-            Pick an address, name the site, and paste the code it gives you into the site's form. Nothing else to host.
+            Pick an address, say where people write the message, and paste the code it gives you — a web form, a card in a phone app, or a call from your backend. Nothing else to host.
           </Empty>
         </Card>
       ) : (
@@ -124,7 +212,7 @@ export function Forms({ c }: { c: FullCompany }) {
                     <At size={13} />
                     <span>to {f.email}</span>
                     <span className="addr-dot" aria-hidden>·</span>
-                    <span>{f.origins.length ? f.origins.join(", ") : "any site may post"}</span>
+                    <span>{posters(f)}</span>
                     <span className="addr-dot" aria-hidden>·</span>
                     <span>sent by {f.appName}</span>
                   </div>
@@ -165,10 +253,10 @@ export function Forms({ c }: { c: FullCompany }) {
       )}
 
       {forms.length > 0 && (
-        <Card title="How a form reaches the inbox" subtitle="Nothing to install on the site; one address is all it posts to.">
+        <Card title="How a message reaches the inbox" subtitle="Nothing to install and nothing to host; one address is all anything posts to.">
           <ol className="steps">
-            <li>The visitor's browser posts the fields to <code>{page.endpointBase}/s/…</code>.</li>
-            <li>The service checks the site it came from, the honeypot and the rate limits, then sends the message through {app?.name ?? "Postal"} as <b>{c.domain}</b>, with <b>Reply-To</b> set to the visitor.</li>
+            <li>The page, the app or your server posts the fields as a form or as JSON to <code>{page.endpointBase}/s/…</code>. Every field becomes a line in the mail, so send whatever helps you answer.</li>
+            <li>The service checks where it came from, the honeypot and the rate limits, then sends the message through {app?.name ?? "Postal"} as <b>{c.domain}</b>, with <b>Reply-To</b> set to the person, when the message carries their email.</li>
             <li>It arrives at the address the form names, filed in that address's folder. Every submission is also kept on the server, under Submissions.</li>
           </ol>
         </Card>
@@ -200,6 +288,7 @@ function FormEditor({ company, form, sending, onClose, onSaved }: {
   const [origins, setOrigins] = useState((form?.origins ?? [`https://${company.domain}`, `https://www.${company.domain}`]).join("\n"));
   const [redirect, setRedirect] = useState(form?.redirect ?? "");
   const [subject, setSubject] = useState(form?.subject ?? DEFAULT_SUBJECT);
+  const [fromApps, setFromApps] = useState(form?.allowNoOrigin ?? false);
   const [auto, setAuto] = useState(!!form?.autoreply);
   const [autoSubject, setAutoSubject] = useState(form?.autoreply?.subject ?? `We got your message`);
   const [autoText, setAutoText] = useState(form?.autoreply?.text ?? `Hello {name},\n\nThanks for writing to ${company.name}. We have your message and will answer within one working day.\n\n${company.name}`);
@@ -215,7 +304,7 @@ function FormEditor({ company, form, sending, onClose, onSaved }: {
   const submit = async () => {
     setBusy(true); setError("");
     const payload = {
-      name, addressId, origins: origins.split(/[\s,]+/).filter(Boolean), redirect, subject,
+      name, addressId, origins: origins.split(/[\s,]+/).filter(Boolean), allowNoOrigin: fromApps, redirect, subject,
       autoreply: auto ? { subject: autoSubject, text: autoText } : null, limits, appId,
     };
     try {
@@ -246,6 +335,14 @@ function FormEditor({ company, form, sending, onClose, onSaved }: {
         <Field label="Sites allowed to post" hint={<>One per line: <code>https://{company.domain}</code>, or <code>*.{company.domain}</code> for every subdomain. Leave it empty and any site may post to this form.</>}>
           <Textarea rows={2} value={origins} onChange={(e) => setOrigins(e.target.value)} spellCheck={false} placeholder={`https://${company.domain}`} />
         </Field>
+        <label className="toggle-row">
+          <Toggle checked={fromApps} onChange={setFromApps} label="Apps and servers may post" />
+          <span><b>A message written in an app, or sent by a server</b>
+            <span className="field-hint">
+              A phone or desktop app, or your own backend, sends no site address, so the list above cannot be checked for it.
+              Turn this on for the message card in {company.name}'s app. The limits below still hold, whoever posts.
+            </span></span>
+        </label>
         <div className="form-row">
           <Field label="Subject of the mail" hint={<>“{"{field}"}” becomes that field: {DEFAULT_SUBJECT}.</>}>
             <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={DEFAULT_SUBJECT} maxLength={200} />
@@ -288,20 +385,31 @@ function FormEditor({ company, form, sending, onClose, onSaved }: {
 }
 
 function CodeModal({ form, onClose, onCopy }: { form: ContactForm; onClose: () => void; onCopy: (v: string, what?: string) => void }) {
-  const [kind, setKind] = useState<"html" | "js">("html");
-  const code = kind === "html" ? htmlSnippet(form) : jsSnippet(form);
+  const [kind, setKind] = useState(SNIPPETS[0]!.id);
+  const snippet = SNIPPETS.find((x) => x.id === kind) ?? SNIPPETS[0]!;
+  const code = snippet.code(form);
+  const needsApps = kind !== "html" && !form.allowNoOrigin && form.origins.length > 0;
   return (
     <Modal open onClose={onClose} title={<>The code for “{form.name}”</>} width={660}
       footer={<><Button variant="ghost" onClick={onClose}>Close</Button>
-        <Button variant="primary" icon={<Copy size={16} />} onClick={() => onCopy(code, "The code is copied. Paste it into the site.")}>Copy the code</Button></>}>
+        <Button variant="primary" icon={<Copy size={16} />} onClick={() => onCopy(code, "The code is copied. Paste it where the message is written.")}>Copy the code</Button></>}>
       <div className="form">
         <div className="kv"><span>Posts to</span><code>{form.endpoint}</code>
           <button className="icon-btn" aria-label="Copy the address" onClick={() => onCopy(form.endpoint, "The form's address is copied.")}><Copy size={14} /></button></div>
         <div className="kv"><span>Arrives at</span><code>{form.email}</code><span /></div>
-        <Segmented value={kind} onChange={setKind} options={[{ value: "html", label: "A plain form" }, { value: "js", label: "From a script" }]} />
+        <Field label="Where the message is written">
+          <select className="input select" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Where the message is written">
+            {SNIPPETS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+          </select>
+        </Field>
         <pre className="form-code">{code}</pre>
+        {needsApps && (
+          <div className="notice notice-warn"><Alert size={16} />
+            <span>A phone app, a desktop app or a server sends no site address, so this form would refuse it. Turn on <b>a message written in an app or sent by a server</b> under Edit.</span></div>
+        )}
         <p className="field-hint">
-          Any field is sent along with its name as its label. <code>email</code> becomes Reply-To{form.autoreply ? " and gets the answer" : ""};
+          Every field is sent along with its name as its label, so add whatever helps you answer: who was signed in, the
+          screen, the app's version, an order number. <code>email</code> becomes Reply-To{form.autoreply ? " and gets the answer" : ""};
           {" "}<code>_subject</code>, <code>_redirect</code> and <code>_cc</code> steer one submission; <code>botcheck</code> is the honeypot.
           A form moved over from Web3Forms keeps working: only its <code>action</code> changes.
         </p>

@@ -142,6 +142,24 @@ test("removing a form takes its site with it", () => {
   assert.throws(() => forms.getForm("rm", id), InputError);
 });
 
+test("a form an app posts to says so in the file, and still names its sites", async () => {
+  const addressId = company("app", "app.test");
+  const id = form("app", addressId, { key: "app_k1" });
+  forms.writeSites();
+  // Sites only, to start with: the service then refuses a post with no site address.
+  assert.equal(read().sites[`app-${id}`]!.allow_no_origin, false);
+
+  await forms.updateForm("app", id, { allowNoOrigin: true });
+  const site = read().sites[`app-${id}`]!;
+  assert.equal(site.allow_no_origin, true);
+  // The listed sites stay, so a web page from anywhere else is still refused.
+  assert.deepEqual(site.origins, ["https://tailzu.space"]);
+  assert.equal(forms.getForm("app", id).allowNoOrigin, true);
+
+  await forms.updateForm("app", id, { allowNoOrigin: false });
+  assert.equal(read().sites[`app-${id}`]!.allow_no_origin, false);
+});
+
 test("an unchanged file is left alone, so the service does not reload for nothing", () => {
   const addressId = company("same", "same.test");
   form("same", addressId, { key: "same_k1" });
