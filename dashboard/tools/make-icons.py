@@ -17,6 +17,8 @@ FG = (255, 255, 255)       # --mark-fg
 DOT = (18, 165, 148)       # --brand
 SS = 8                     # supersampling
 OUT = Path(__file__).resolve().parent.parent / "web" / "public"
+# The phone app (mobile/) is drawn from the same mark.
+APP = Path(__file__).resolve().parent.parent.parent / "mobile" / "assets" / "images"
 
 
 def cap(d: ImageDraw.ImageDraw, xy, width, fill):
@@ -81,9 +83,23 @@ ICONS = [
     ("apple-touch-icon.png", 180, 0.66, 0),
 ]
 
+# The phone app's own, under mobile/assets/images (app.json names them).
+APP_ICONS = [
+    # What the App Store and the home screen show; iOS rounds it itself.
+    ("icon.png", 1024, 0.62, 0),
+    # Android draws its own shape over this, so the mark stays well inside.
+    ("android-icon-foreground.png", 1024, 0.42, 0),
+    ("splash-icon.png", 512, 0.70, 0.22),
+]
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     for name, size, ink, radius in ICONS:
         icon = draw(size, ink=ink, radius=radius)
         icon.save(OUT / name, optimize=True)
         print(f"{name}  {size}x{size}  {(OUT / name).stat().st_size // 1024 or 1} KB")
+    if APP.is_dir():
+        for name, size, ink, radius in APP_ICONS:
+            icon = draw(size, ink=ink, radius=radius)
+            icon.save(APP / name, optimize=True)
+            print(f"mobile/{name}  {size}x{size}  {(APP / name).stat().st_size // 1024 or 1} KB")

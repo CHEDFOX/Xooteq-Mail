@@ -74,6 +74,16 @@ const migrations: string[] = [
   // A phone app, a desktop app or a server sends no site address, so a form one
   // of them posts to says so: the service's allow_no_origin.
   `ALTER TABLE forms ADD COLUMN allow_no_origin INTEGER NOT NULL DEFAULT 0;`,
+  // The phone app signs in as a device: a session of its own, named, listed and
+  // revocable on its own, and where to push its notifications (push.ts).
+  `ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'web';
+   ALTER TABLE sessions ADD COLUMN label TEXT NOT NULL DEFAULT '';
+   CREATE TABLE push_devices (
+     id INTEGER PRIMARY KEY,
+     owner_id INTEGER NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+     token TEXT NOT NULL UNIQUE, platform TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '',
+     session_hash TEXT, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL);
+   CREATE INDEX push_devices_owner ON push_devices(owner_id);`,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");

@@ -30,6 +30,7 @@ xooteq-mail/
   certbot-hook.sh        hands renewed certificates to the SMTP server
   .env.example           the few values to fill in
   dashboard/             Xooteq Mail: the inbox, companies, forms, rules, AI replies, sending
+  mobile/                the phone app (iPhone and Android), see its own README
   postal-bridge/         lets the dashboard run Postal (apps, keys, domains, message log)
   engine.py              sets up and configures Stalwart (the mailboxes)
   workspace-setup.sh     installs or updates Stalwart and Xooteq Mail
@@ -514,13 +515,24 @@ Mail apps: the company's **Mail apps** tab has the settings (IMAP
 `mx.mail.xooteq.online:993`, SMTP `smtp.mail.xooteq.online:465`, both SSL/TLS;
 the username is the main address) and sets the app password.
 
-### On a phone: Xooteq Mail as an app
+### On a phone: the app
 
-The dashboard installs onto a device as an app of its own — its own icon, its
-own window with no browser around it, and it opens where you left off. There is
-nothing to download and no app store: it is the same `https://mail.xooteq.online`,
-kept by the phone. The first visit on a phone offers it; **Settings → Account →
-This device** offers it again later.
+There are two ways to have Xooteq Mail on a phone, and they share the same
+server and the same account.
+
+**The native app** (`mobile/`) is the one to install on a phone: a real React
+Native app for iPhone and Android with the mail, the forms, the sending log and
+the AI's work, and notifications the moment mail arrives. It signs the device in
+with a token of its own, which **Settings → Signed-in devices** lists and can
+revoke. Building and installing it is in `mobile/README.md`; in short,
+`npx expo start` with Expo Go to try it, and `eas build` for a real installed
+app (an iPhone build needs an Apple developer account).
+
+**The dashboard itself** also installs onto a device as an app — its own icon,
+its own window with no browser around it, and it opens where you left off. There
+is nothing to download and no app store: it is the same
+`https://mail.xooteq.online`, kept by the phone. The first visit on a phone
+offers it; **Settings → Account → This device** offers it again later.
 
 - **iPhone and iPad** (Safari, the only browser that can): **Share** → **Add to
   Home Screen**.
@@ -536,9 +548,9 @@ asking you to sign in again — the app's own files are kept on the device, and
 phone holds no messages (`dashboard/web/public/sw.js`).
 
 Updates arrive by themselves: deploy as usual, and the next time the app is
-opened it fetches the new version and offers **Reload**. The icons are drawn
-from the mark by `python3 tools/make-icons.py` in `dashboard/` (Pillow), into
-`web/public/`.
+opened it fetches the new version and offers **Reload**. The icons for both the
+web app and the native one are drawn from the mark by `python3 tools/make-icons.py`
+in `dashboard/` (Pillow), into `web/public/` and `mobile/assets/images/`.
 
 ### Backups
 

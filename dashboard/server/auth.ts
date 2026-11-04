@@ -1,5 +1,7 @@
 // Logins to the dashboard (owners), and their sessions. A session is a random
-// token in an httpOnly cookie; the database keeps only its hash.
+// token the database keeps only the hash of: in an httpOnly cookie for the web
+// app, or carried by the phone app as a bearer token (mobile/). A device's
+// session is named, lasts a year while it is used, and is revoked on its own.
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { config } from "./config.ts";
 import { db, now } from "./db.ts";
@@ -7,6 +9,10 @@ import { hashPassword, randomToken, sha256, verifyPassword } from "./crypto.ts";
 
 export const COOKIE = "xm_session";
 const TTL = 30 * 86_400_000;
+/** A phone is not asked to sign in every month; using it keeps it signed in. */
+const DEVICE_TTL = 365 * 86_400_000;
+
+export type Device = { id: string; label: string; createdAt: number; lastSeen: number; current: boolean };
 
 export type Owner = { id: number; email: string; name: string };
 
@@ -57,6 +63,13 @@ export function logout(token: string | undefined): void {
   if (token) db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(token));
 }
 
+/** The token a phone app sends: Authorization: Bearer <token>. */
+export function bearerOf(req: FastifyRequest): string | undefined {
+  const raw = String(req.headers.authorization ?? "");
+  const m = /^Bearer\s+(.+)$/i.exec(raw.trim());
+  return m ? m[1]!.trim() : undefined;
+}
+
 export function cookieOf(req: FastifyRequest): string | undefined {
   const raw = req.headers.cookie ?? "";
   for (const part of raw.split(";")) {
@@ -70,17 +83,45 @@ export function setCookie(reply: FastifyReply, token: string, maxAgeMs = TTL): v
   reply.header("set-cookie", `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}${config.secureCookies ? "; Secure" : ""}`);
 }
 
-/** The owner behind the request's cookie, sliding the session forward once a day. */
+/** The owner behind the request's cookie or bearer token, sliding the session
+ *  forward once a day so an app in daily use never asks for the password again. */
 export function ownerOf(req: FastifyRequest): Owner | null {
-  const token = cookieOf(req);
+  const token = cookieOf(req) ?? bearerOf(req);
   if (!token) return null;
-  const s = db.prepare(`SELECT o.id, o.email, o.name, s.expires_at, s.last_seen FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE s.token_hash = ?`)
-    .get(sha256(token)) as (Owner & { expires_at: number; last_seen: number }) | undefined;
+  const hash = sha256(token);
+  const s = db.prepare(`SELECT o.id, o.email, o.name, s.expires_at, s.last_seen, s.kind FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE s.token_hash = ?`)
+    .get(hash) as (Owner & { expires_at: number; last_seen: number; kind: string }) | undefined;
   if (!s || s.expires_at < now()) return null;
   if (now() - s.last_seen > 86_400_000) {
-    db.prepare("UPDATE sessions SET last_seen = ?, expires_at = ? WHERE token_hash = ?").run(now(), now() + TTL, sha256(token));
+    db.prepare("UPDATE sessions SET last_seen = ?, expires_at = ? WHERE token_hash = ?")
+      .run(now(), now() + (s.kind === "device" ? DEVICE_TTL : TTL), hash);
   }
   return { id: s.id, email: s.email, name: s.name };
+}
+
+/** Signs a device in: the same password, a token of its own that it keeps. */
+export function signInDevice(email: string, password: string, label: string, ip: string, agent: string): { token: string; owner: Owner } | null {
+  const res = login(email, password, ip, agent);
+  if (!res) return null;
+  db.prepare("UPDATE sessions SET kind = 'device', label = ?, expires_at = ? WHERE token_hash = ?")
+    .run(String(label ?? "").trim().slice(0, 60) || "A device", now() + DEVICE_TTL, sha256(res.token));
+  return res;
+}
+
+/** The devices signed in to this account, newest first. */
+export function devices(ownerId: number, current?: string): Device[] {
+  const rows = db.prepare(`SELECT token_hash, label, created_at, last_seen FROM sessions
+    WHERE owner_id = ? AND kind = 'device' AND expires_at > ? ORDER BY last_seen DESC`)
+    .all(ownerId, now()) as { token_hash: string; label: string; created_at: number; last_seen: number }[];
+  const here = current ? sha256(current) : "";
+  // The hash is the handle: it names the session without being able to sign in.
+  return rows.map((r) => ({ id: r.token_hash, label: r.label, createdAt: r.created_at, lastSeen: r.last_seen, current: r.token_hash === here }));
+}
+
+/** Signs one device out, wherever it is. */
+export function revokeDevice(ownerId: number, id: string): boolean {
+  const r = db.prepare("DELETE FROM sessions WHERE owner_id = ? AND token_hash = ? AND kind = 'device'").run(ownerId, id);
+  return Number(r.changes) > 0;
 }
 
 export function verifyOwnerPassword(ownerId: number, password: string): boolean {

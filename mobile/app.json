@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Xooteq Mail",
+    "slug": "xooteq-mail",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "xooteqmail",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#F1F2EF",
+    "primaryColor": "#12A594",
+    "ios": {
+      "bundleIdentifier": "online.xooteq.mail",
+      "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "online.xooteq.mail",
+      "adaptiveIcon": {
+        "backgroundColor": "#141517",
+        "foregroundImage": "./assets/images/android-icon-foreground.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#12A594",
+          "defaultChannel": "mail"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#141517",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 96
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "_comment": "The server this app talks to by default; the sign-in screen can be given another.",
+      "apiUrl": "https://mail.xooteq.online"
+    },
+    "web": {
+      "output": "single",
+      "bundler": "metro"
+    }
+  }
+}
