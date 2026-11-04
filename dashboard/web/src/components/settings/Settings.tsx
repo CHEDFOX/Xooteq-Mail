@@ -8,6 +8,7 @@ import type { AiRun } from "../../types";
 import { cls, relative } from "../../util";
 import { Activity, Building, ChevronLeft, Key, Plus, Send, Sparkle, User } from "../../icons";
 import { Button, Card, Empty, Field, Input, Pill, Spinner } from "../../ui";
+import { InstallCard } from "../Install";
 import { Companies, NewCompany } from "./Companies";
 import { CompanySettings } from "./Company";
 import { Providers } from "./Ai";
@@ -153,6 +154,7 @@ function Account() {
   return (
     <>
       <PageHead title="Account" sub={<>Signed in as <b>{me?.owner.email}</b>.</>} />
+      <InstallCard />
       <Card title="Password" subtitle="Changing it signs you out everywhere.">
         <form className="form" onSubmit={save}>
           <Field label="Current password"><Input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required /></Field>

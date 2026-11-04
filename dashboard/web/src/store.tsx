@@ -1,7 +1,7 @@
 // What the whole app shares: who is signed in, the companies, unread counts,
 // the theme, notices, the command palette and the composer.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { get, whenSignedOut } from "./api";
+import { ApiError, get, whenSignedOut } from "./api";
 import { Jmap } from "./jmap";
 import { go } from "./router";
 import type { Company, Email, Me } from "./types";
@@ -18,6 +18,8 @@ export type ComposeIntent =
 type Ctx = {
   me: Me | null;
   loading: boolean;
+  /** The server could not be reached, rather than this device being signed out. */
+  offline: boolean;
   refreshMe: () => Promise<Me | null>;
   unread: Unread;
   refreshUnread: () => void;
@@ -49,6 +51,7 @@ function readTheme(): Theme {
 export function AppProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
+  const [offline, setOffline] = useState(false);
   const [unread, setUnread] = useState<Unread>({});
   const [theme, setThemeState] = useState<Theme>(readTheme);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -63,9 +66,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const m = await get<Me>("/api/me");
       setMe(m);
+      setOffline(false);
       return m;
-    } catch {
-      setMe(null);
+    } catch (e) {
+      // A refusal means signed out; no answer at all means no connection, and
+      // then what is already on screen stays rather than the sign-in page.
+      if (e instanceof ApiError) {
+        setMe(null);
+        setOffline(false);
+      } else {
+        setOffline(true);
+      }
       return null;
     } finally {
       setLoading(false);
@@ -77,8 +88,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    whenSignedOut(() => { setMe(null); go("/login", true); });
+    whenSignedOut(() => { setMe(null); setOffline(false); go("/login", true); });
     refreshMe();
+    const back = () => { refreshMe(); };
+    window.addEventListener("online", back);
+    return () => window.removeEventListener("online", back);
   }, [refreshMe]);
 
   useEffect(() => {
@@ -104,7 +118,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [dismiss]);
 
   const value = useMemo<Ctx>(() => ({
-    me, loading, refreshMe, unread, refreshUnread,
+    me, loading, offline, refreshMe, unread, refreshUnread,
     company: (cid?: string) => me?.companies.find((c) => c.id === cid),
     jmap: (cid: string) => {
       let j = clients.current.get(cid);
@@ -112,7 +126,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return j;
     },
     theme, setTheme: setThemeState, toast, dismiss, toasts, palette, setPalette, compose, setCompose, help, setHelp, viewAddress, setViewAddress,
-  }), [me, loading, refreshMe, unread, refreshUnread, theme, toast, dismiss, toasts, palette, compose, help, viewAddress]);
+  }), [me, loading, offline, refreshMe, unread, refreshUnread, theme, toast, dismiss, toasts, palette, compose, help, viewAddress]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

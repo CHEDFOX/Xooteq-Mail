@@ -514,6 +514,32 @@ Mail apps: the company's **Mail apps** tab has the settings (IMAP
 `mx.mail.xooteq.online:993`, SMTP `smtp.mail.xooteq.online:465`, both SSL/TLS;
 the username is the main address) and sets the app password.
 
+### On a phone: Xooteq Mail as an app
+
+The dashboard installs onto a device as an app of its own — its own icon, its
+own window with no browser around it, and it opens where you left off. There is
+nothing to download and no app store: it is the same `https://mail.xooteq.online`,
+kept by the phone. The first visit on a phone offers it; **Settings → Account →
+This device** offers it again later.
+
+- **iPhone and iPad** (Safari, the only browser that can): **Share** → **Add to
+  Home Screen**.
+- **Android** (Chrome): the bar at the top of the app, or Chrome's menu →
+  **Install app**.
+- **Mac, Windows, Linux**: Chrome or Edge's menu → **Install Xooteq Mail**; in
+  Safari, **File → Add to Dock**.
+
+It signs in for a month at a time, like the browser does, so it opens straight
+into the inbox. Without a connection it still opens and says so instead of
+asking you to sign in again — the app's own files are kept on the device, and
+**no mail is**: everything under `/api` goes to the server every time, so a lost
+phone holds no messages (`dashboard/web/public/sw.js`).
+
+Updates arrive by themselves: deploy as usual, and the next time the app is
+opened it fetches the new version and offers **Reload**. The icons are drawn
+from the mark by `python3 tools/make-icons.py` in `dashboard/` (Pillow), into
+`web/public/`.
+
 ### Backups
 
 The mail is in the `stalwart_data` volume and the dashboard's settings in
